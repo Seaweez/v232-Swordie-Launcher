@@ -16,6 +16,7 @@ namespace v232.Launcher.WPF.Services
     public class LoginService
     {
         private readonly static string sDllPath = "Localhost.dll";
+        private readonly static string sThaiChatDllPath = "ThaiChatHook.dll";
         private readonly static uint CREATE_SUSPENDED = 0x00000004;
 
         public Client CClient { get; set; }
@@ -263,13 +264,17 @@ namespace v232.Launcher.WPF.Services
                 PROCESS_INFORMATION pi = new PROCESS_INFORMATION();
 
                 bool bCreateProc = CreateProcess("MapleStory.exe", $" WebStart {this.Token}", IntPtr.Zero, IntPtr.Zero, false, CREATE_SUSPENDED, IntPtr.Zero, null, ref si, out pi);
+                Console.WriteLine($"CreateProcess result={bCreateProc} error={Marshal.GetLastWin32Error()} pid={pi.dwProcessId}");
 
                 if (bCreateProc)
                 {
                     // Use full path for DLL injection
                     string fullDllPath = Path.Combine(Directory.GetCurrentDirectory(), sDllPath);
+                    string fullThaiChatDllPath = Path.Combine(Directory.GetCurrentDirectory(), sThaiChatDllPath);
                     int bInject = Inject(pi.dwProcessId, fullDllPath);
-                    if (bInject == 0)
+                    int thaiChatInject = bInject == 0 ? Inject(pi.dwProcessId, fullThaiChatDllPath) : bInject;
+                    Console.WriteLine($"Injection Localhost={bInject} ThaiChatHook={thaiChatInject}");
+                    if (bInject == 0 && thaiChatInject == 0)
                     {
                         ResumeThread(pi.hThread);
 
@@ -280,7 +285,8 @@ namespace v232.Launcher.WPF.Services
                     }
                     else
                     {
-                        MessageBox.Show("Error code: " + bInject.ToString(), "Injection Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                        int errorCode = bInject != 0 ? bInject : thaiChatInject;
+                        MessageBox.Show("Error code: " + errorCode.ToString(), "Injection Error", MessageBoxButton.OK, MessageBoxImage.Error);
                         return false;
                     }
                 }
