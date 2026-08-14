@@ -462,9 +462,9 @@ namespace v232.Launcher.WPF
 
         #endregion
 
-        #region Discord Button
+        #region Website Button
 
-        private void DiscordButton_MouseEnter(object sender, MouseEventArgs e)
+        private void WebsiteButton_MouseEnter(object sender, MouseEventArgs e)
         {
             if (sender is System.Windows.Controls.Border border)
             {
@@ -480,7 +480,7 @@ namespace v232.Launcher.WPF
             }
         }
 
-        private void DiscordButton_MouseLeave(object sender, MouseEventArgs e)
+        private void WebsiteButton_MouseLeave(object sender, MouseEventArgs e)
         {
             if (sender is System.Windows.Controls.Border border)
             {
@@ -490,11 +490,11 @@ namespace v232.Launcher.WPF
             }
         }
 
-        private void DiscordButton_Click(object sender, MouseButtonEventArgs e)
+        private void WebsiteButton_Click(object sender, MouseButtonEventArgs e)
         {
             Process.Start(new ProcessStartInfo
             {
-                FileName = "https://discord.gg/bTG7fubsfG",
+                FileName = "https://mstory-x.com",
                 UseShellExecute = true
             });
         }
