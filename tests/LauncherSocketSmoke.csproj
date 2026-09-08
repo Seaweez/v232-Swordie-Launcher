@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\Models\Configs.cs" />
+    <Compile Include="..\Models\InPacket.cs" />
+    <Compile Include="..\Models\OutPacket.cs" />
+    <Compile Include="..\Services\Client.cs" />
+    <Compile Include="LauncherSocketSmoke.cs" />
+  </ItemGroup>
+</Project>

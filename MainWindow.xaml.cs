@@ -8,6 +8,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using WpfAnimatedGif;
 using v232.Launcher.WPF.Services;
+using v232.Launcher.WPF.Models;
 
 namespace v232.Launcher.WPF
 {
@@ -20,8 +21,7 @@ namespace v232.Launcher.WPF
         private bool _isLoggedIn = false;
         private bool _isNeonTheme = false;
         private static readonly string ConfigFolder = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "RoyalStoryLauncher");
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MStoryXLauncher");
         private static readonly string ThemeConfigPath = Path.Combine(ConfigFolder, "theme.cfg");
         private static readonly string UserConfigPath = Path.Combine(ConfigFolder, "user.cfg");
         private static readonly string BgmConfigPath = Path.Combine(ConfigFolder, "bgm.cfg");
@@ -29,6 +29,7 @@ namespace v232.Launcher.WPF
         public MainWindow()
         {
             InitializeComponent();
+            ApplyBranding();
             _registerService = new RegisterService();
 
             // Load saved theme preference (just the flag, don't apply yet)
@@ -37,8 +38,22 @@ namespace v232.Launcher.WPF
             // Try to connect to server on startup
             InitializeConnection();
 
+            // Fetch dynamic links & announcements from remote server asynchronously
+            _ = LauncherRemoteConfigService.Instance.RefreshAsync();
+
             // Load GIFs and apply theme when window loads
             Loaded += MainWindow_Loaded;
+        }
+
+        private void ApplyBranding()
+        {
+            try
+            {
+                this.Title = "MStory : X Launcher";
+                if (VersionTagText != null) VersionTagText.Text = "v232.2";
+                if (LoadingOverlayTitle != null) LoadingOverlayTitle.Text = "MStory : X";
+            }
+            catch { }
         }
 
         private bool _classicGifReady = false;
@@ -390,7 +405,7 @@ namespace v232.Launcher.WPF
 
         #region Play Game
 
-        private void PlayButton_Click(object sender, RoutedEventArgs e)
+        private async void PlayButton_Click(object sender, RoutedEventArgs e)
         {
             if (_loginService == null || !_loginService.Auth)
             {
@@ -402,12 +417,18 @@ namespace v232.Launcher.WPF
 
             try
             {
-                bool launched = _loginService.LaunchMaple();
+                bool refreshed = await _loginService.RefreshAuthenticationForLaunchAsync();
+                if (!refreshed)
+                {
+                    MessageBox.Show("Your login session expired. Please sign in again.", "Login Expired", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                bool launched = await _loginService.LaunchMapleAsync();
 
                 if (launched)
                 {
-                    // Optionally close launcher after game starts
-                    // Application.Current.Shutdown();
+                    this.WindowState = WindowState.Minimized;
                 }
             }
             catch (Exception ex)
@@ -453,11 +474,19 @@ namespace v232.Launcher.WPF
 
         private void NewsItem1_Click(object sender, MouseButtonEventArgs e)
         {
-            Process.Start(new ProcessStartInfo
+            try
             {
-                FileName = "https://forum.ragezone.com/threads/xmas-release-v232-swordie-source.1257894/",
-                UseShellExecute = true
-            });
+                string target = !string.IsNullOrWhiteSpace(LauncherRemoteConfigService.Instance.LatestNewsUrl)
+                    ? LauncherRemoteConfigService.Instance.LatestNewsUrl
+                    : LauncherRemoteConfigService.Instance.DiscordUrl;
+
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = target,
+                    UseShellExecute = true
+                });
+            }
+            catch { }
         }
 
         #endregion
@@ -469,13 +498,13 @@ namespace v232.Launcher.WPF
             if (sender is System.Windows.Controls.Border border)
             {
                 border.Background = (Brush)FindResource("BackgroundElevatedBrush");
-                border.BorderBrush = new SolidColorBrush((Color)ColorConverter.ConvertFromString("#5865F2"));
+                border.BorderBrush = (Brush)FindResource("PrimaryAccentBrush");
                 border.Effect = new System.Windows.Media.Effects.DropShadowEffect
                 {
                     BlurRadius = 15,
                     ShadowDepth = 0,
-                    Color = (Color)ColorConverter.ConvertFromString("#5865F2"),
-                    Opacity = 0.4
+                    Color = (Color)ColorConverter.ConvertFromString("#FF8C00"),
+                    Opacity = 0.45
                 };
             }
         }
@@ -492,11 +521,15 @@ namespace v232.Launcher.WPF
 
         private void WebsiteButton_Click(object sender, MouseButtonEventArgs e)
         {
-            Process.Start(new ProcessStartInfo
+            try
             {
-                FileName = "https://mstory-x.com",
-                UseShellExecute = true
-            });
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = "https://mstory-x.com",
+                    UseShellExecute = true
+                });
+            }
+            catch { }
         }
 
         #endregion
@@ -588,7 +621,7 @@ namespace v232.Launcher.WPF
 
                 if (resourceStream != null)
                 {
-                    _bgmTempPath = Path.Combine(Path.GetTempPath(), "RoyalStory_bgm.mp3");
+                    _bgmTempPath = Path.Combine(Path.GetTempPath(), "MStoryX_bgm.mp3");
 
                     using (var fileStream = new FileStream(_bgmTempPath, FileMode.Create, FileAccess.Write))
                     {

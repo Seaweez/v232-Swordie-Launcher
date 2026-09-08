@@ -16,8 +16,10 @@ namespace v232.Launcher.WPF.Services
     public class LoginService
     {
         private readonly static string sDllPath = "Localhost.dll";
-        private readonly static string sThaiChatDllPath = "ThaiChatHook.dll";
+        private readonly static string sThaiChatDllPath = "ThaiChatInputPatch.dll";
         private readonly static uint CREATE_SUSPENDED = 0x00000004;
+        private readonly static uint EVENT_SYNCHRONIZE = 0x00100000;
+        private readonly static uint WAIT_OBJECT_0 = 0x00000000;
 
         public Client CClient { get; set; }
         public string User { get; set; }
@@ -87,6 +89,15 @@ namespace v232.Launcher.WPF.Services
         [DllImport("kernel32.dll", SetLastError = true)]
         static extern uint WaitForSingleObject(IntPtr hHandle, uint dwMilliseconds);
 
+        [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        static extern IntPtr OpenEvent(uint dwDesiredAccess, bool bInheritHandle, string lpName);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        static extern bool TerminateProcess(IntPtr hProcess, uint uExitCode);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        static extern bool GetExitCodeProcess(IntPtr hProcess, out uint lpExitCode);
+
         [DllImport("kernel32.dll", SetLastError = true)]
         static extern IntPtr GetProcAddress(IntPtr hModule, string lpProcName);
 
@@ -152,29 +163,123 @@ namespace v232.Launcher.WPF.Services
             return 0;
         }
 
-        private async Task<byte> GetFileChecksum(string filename, string checksum)
+        private enum ThaiPatchStartupStatus
+        {
+            Ready,
+            Failed,
+            Timeout
+        }
+
+        private static bool IsEventSignaled(string eventName)
+        {
+            IntPtr handle = OpenEvent(EVENT_SYNCHRONIZE, false, eventName);
+            if (handle == IntPtr.Zero)
+                return false;
+            try
+            {
+                return WaitForSingleObject(handle, 0) == WAIT_OBJECT_0;
+            }
+            finally
+            {
+                CloseHandle(handle);
+            }
+        }
+
+        private static ThaiPatchStartupStatus WaitForThaiPatch(uint processID, int timeoutMilliseconds)
+        {
+            string prefix = $"Local\\MapleStoryX.V232ThaiPatch.";
+            string readyEvent = $"{prefix}Ready.{processID}";
+            string failedEvent = $"{prefix}Failed.{processID}";
+            Stopwatch stopwatch = Stopwatch.StartNew();
+            while (stopwatch.ElapsedMilliseconds < timeoutMilliseconds)
+            {
+                if (IsEventSignaled(readyEvent))
+                    return ThaiPatchStartupStatus.Ready;
+                if (IsEventSignaled(failedEvent))
+                    return ThaiPatchStartupStatus.Failed;
+                System.Threading.Thread.Sleep(20);
+            }
+            return ThaiPatchStartupStatus.Timeout;
+        }
+
+        private enum LaunchFailureKind
+        {
+            None,
+            CreateProcess,
+            LocalhostInjection,
+            Resume,
+            ImmediateExit,
+            Unknown
+        }
+
+        private sealed class LaunchAttemptResult
+        {
+            public LaunchFailureKind FailureKind { get; set; }
+            public string Message { get; set; }
+            public bool Started { get { return FailureKind == LaunchFailureKind.None; } }
+        }
+
+        private Task<byte> GetFileChecksum(string filename, string checksum)
         {
             this.CClient.Send(OutPackets.FileChecksum(filename, checksum));
             InPacket inPacket = this.CClient.Receive();
             inPacket.readInt();
             int num = (int)inPacket.readShort();
-            return inPacket.readByte();
+            return Task.FromResult(inPacket.readByte());
+        }
+
+        private async Task<bool> VerifyRemoteWzChecksumsAsync(string clientDirectory)
+        {
+            string[] wzFiles = Directory.GetFiles(clientDirectory, "*.wz", SearchOption.TopDirectoryOnly);
+            if (wzFiles.Length != 29)
+            {
+                MessageBox.Show(
+                    $"Expected 29 .wz files, found {wzFiles.Length}. Please repair the client before launching.",
+                    "WZ Integrity Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                return false;
+            }
+
+            string[] wzIgnore = { "Effect", "Sound", "Morph", "Reactor", "String", "TamingMob", "Base" };
+            const int bufferSize = 10 * 1024 * 1024;
+
+            foreach (string wzFile in wzFiles.OrderBy(path => path, StringComparer.OrdinalIgnoreCase))
+            {
+                if (wzIgnore.Any(s => wzFile.IndexOf(s, StringComparison.OrdinalIgnoreCase) >= 0))
+                    continue;
+
+                string fileName = Path.GetFileNameWithoutExtension(wzFile);
+                byte[] fileHash;
+                using (var md5 = MD5.Create())
+                using (var fileStream = new FileStream(wzFile, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize, FileOptions.SequentialScan))
+                using (var bufferedStream = new BufferedStream(fileStream, bufferSize))
+                {
+                    fileHash = md5.ComputeHash(bufferedStream);
+                }
+
+                string hashString = BitConverter.ToString(fileHash).Replace("-", "").ToLowerInvariant();
+                byte checkFileChecksum = await GetFileChecksum(fileName, hashString);
+                if (checkFileChecksum == 1)
+                {
+                    MessageBox.Show(
+                        $"The server rejected {fileName}.wz. Please repair the client before launching.",
+                        "WZ Integrity Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return false;
+                }
+            }
+
+            return true;
         }
 
         public async Task<bool> Authenticate()
         {
+            Client authClient = null;
             try
             {
-                if (CClient == null || !CClient.IsConnected())
-                {
-                    CClient = new Client();
-                    if (!CClient.Connect())
-                    {
-                        return false;
-                    }
-                }
+                authClient = new Client();
+                if (!authClient.Connect())
+                    return false;
 
-                var result = await Handlers.SendAuthRequest(User, Pass, CClient);
+                var result = await Handlers.SendAuthRequest(User, Pass, authClient);
 
                 if (result.result == 0)
                 {
@@ -192,117 +297,172 @@ namespace v232.Launcher.WPF.Services
                 Auth = false;
                 return false;
             }
+            finally
+            {
+                authClient?.Disconnect();
+            }
         }
 
-        public bool LaunchMaple()
+        public async Task<bool> RefreshAuthenticationForLaunchAsync()
         {
-            if (!Configs.LocalLogin)
-            {
-                bool passChecksum = true;
-                int bufferSize = 10 * 1024 * 1024; // 10 MB
+            Token = null;
+            Auth = false;
+            return await Authenticate();
+        }
 
-                string[] wz_files = Directory.GetFiles(Directory.GetCurrentDirectory(), "*.wz", SearchOption.TopDirectoryOnly);
-                if (wz_files.Length > 26)
-                {
-                    MessageBox.Show("Too many .wz files detected. Please remove any wz files that didn't come with the client install.", "WZ Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                    return false;
-                }
-                else if (wz_files.Length < 26)
-                {
-                    MessageBox.Show("Too few .wz files detected. Please reinstall the client or replace the files needed.", "WZ Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                    return false;
-                }
-
-                string[] wz_ignore = { "Effect", "Sound", "Morph", "Reactor", "String", "TamingMob", "Base" };
-
-                Parallel.ForEach(wz_files, async wz_file =>
-                {
-                    try
-                    {
-                        if (wz_ignore.Any(s => wz_file.Contains(s)))
-                            return;
-
-                        string[] file_parts = wz_file.Split('\\');
-                        string file_name = file_parts[file_parts.Length - 1];
-                        file_name = file_name.Replace(".wz", "");
-
-                        byte[] fileHash;
-                        using (var md5 = MD5.Create())
-                        using (var fileStream = new FileStream(wz_file, FileMode.Open, FileAccess.Read, FileShare.Read, bufferSize))
-                        using (var bufferedStream = new BufferedStream(fileStream, bufferSize))
-                        {
-                            fileHash = md5.ComputeHash(bufferedStream);
-                        }
-
-                        string hashString = BitConverter.ToString(fileHash).Replace("-", "").ToLowerInvariant();
-                        byte checkFileChecksum = await GetFileChecksum(file_name, hashString);
-
-                        if (checkFileChecksum.Equals(1))
-                        {
-                            MessageBox.Show("One or more .wz files failed the integrity check. Please re-download the correct files.", "File Integrity Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                            passChecksum = false;
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine($"Error processing file {wz_file}: {ex.Message}");
-                    }
-                    finally
-                    {
-                        GC.Collect();
-                        GC.WaitForPendingFinalizers();
-                    }
-                });
-
-                if (!passChecksum)
-                    return false;
-            }
+        public async Task<bool> LaunchMapleAsync()
+        {
+            string clientDirectory = AppContext.BaseDirectory;
+            CanvasModePlan canvasPlan = null;
+            LaunchAttemptResult attempt = null;
 
             try
             {
-                STARTUPINFO si = new STARTUPINFO();
-                PROCESS_INFORMATION pi = new PROCESS_INFORMATION();
+                canvasPlan = CanvasModeService.Prepare(clientDirectory);
+                Console.WriteLine(canvasPlan.Message);
 
-                bool bCreateProc = CreateProcess("MapleStory.exe", $" WebStart {this.Token}", IntPtr.Zero, IntPtr.Zero, false, CREATE_SUSPENDED, IntPtr.Zero, null, ref si, out pi);
-                Console.WriteLine($"CreateProcess result={bCreateProc} error={Marshal.GetLastWin32Error()} pid={pi.dwProcessId}");
+                attempt = await LaunchMapleProcessAsync(clientDirectory).ConfigureAwait(false);
+                if (attempt.Started)
+                    return true;
 
-                if (bCreateProc)
+                // An immediate native exit is the only failure that is safe to
+                // retry with the alternate Canvas variant. Authentication,
+                // injection, and CreateProcess errors are not Canvas-mode
+                // problems and must not start a second game process.
+                if (attempt.FailureKind == LaunchFailureKind.ImmediateExit && canvasPlan.FallbackMode.HasValue)
                 {
-                    // Use full path for DLL injection
-                    string fullDllPath = Path.Combine(Directory.GetCurrentDirectory(), sDllPath);
-                    string fullThaiChatDllPath = Path.Combine(Directory.GetCurrentDirectory(), sThaiChatDllPath);
-                    int bInject = Inject(pi.dwProcessId, fullDllPath);
-                    int thaiChatInject = bInject == 0 ? Inject(pi.dwProcessId, fullThaiChatDllPath) : bInject;
-                    Console.WriteLine($"Injection Localhost={bInject} ThaiChatHook={thaiChatInject}");
-                    if (bInject == 0 && thaiChatInject == 0)
-                    {
-                        ResumeThread(pi.hThread);
-
-                        CloseHandle(pi.hThread);
-                        CloseHandle(pi.hProcess);
-
+                    CanvasModePlan fallbackPlan = CanvasModeService.Prepare(clientDirectory, canvasPlan.FallbackMode.Value);
+                    Console.WriteLine(fallbackPlan.Message);
+                    LaunchAttemptResult fallbackAttempt = await LaunchMapleProcessAsync(clientDirectory).ConfigureAwait(false);
+                    if (fallbackAttempt.Started)
                         return true;
-                    }
-                    else
+
+                    attempt.Message = $"{attempt.Message}\nFallback {fallbackPlan.EffectiveMode} also failed: {fallbackAttempt.Message}";
+                }
+
+                MessageBox.Show(
+                    $"Could not start the game.\n\nCanvas mode: {canvasPlan.EffectiveMode}\n{attempt.Message}\n\nEnsure MapleStory.exe, Localhost.dll, and the required DirectX DLLs are in the same full client folder.",
+                    "Launch Error",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+                return false;
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(
+                    $"Could not prepare or start the game.\n\nError: {ex.Message}\n\nRepair the client files and try again.",
+                    "Launch Error",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+                return false;
+            }
+        }
+
+        private async Task<LaunchAttemptResult> LaunchMapleProcessAsync(string clientDirectory)
+        {
+            try
+            {
+                // Enforce Windowed Mode in Registry to prevent silent crash on modern multi-refresh/high-DPI monitors.
+                try
+                {
+                    using (var key = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(@"Software\Wizet\MapleStory"))
                     {
-                        int errorCode = bInject != 0 ? bInject : thaiChatInject;
-                        MessageBox.Show("Error code: " + errorCode.ToString(), "Injection Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                        return false;
+                        if (key != null)
+                        {
+                            key.SetValue("soScreenMode", 3, Microsoft.Win32.RegistryValueKind.DWord);
+                            key.SetValue("WindowMode", 1, Microsoft.Win32.RegistryValueKind.DWord);
+                        }
                     }
                 }
-                else
+                catch { }
+
+                STARTUPINFO si = new STARTUPINFO();
+                si.cb = (uint)Marshal.SizeOf(typeof(STARTUPINFO));
+                PROCESS_INFORMATION pi = new PROCESS_INFORMATION();
+                string maplePath = Path.Combine(clientDirectory, "MapleStory.exe");
+                Environment.SetEnvironmentVariable("MAPLE_SERVER_IP", Configs.GetServerIP());
+                bool created = CreateProcess(maplePath, $"\"{maplePath}\" WebStart {this.Token}", IntPtr.Zero, IntPtr.Zero, false, CREATE_SUSPENDED, IntPtr.Zero, clientDirectory, ref si, out pi);
+                int createError = Marshal.GetLastWin32Error();
+                Console.WriteLine($"CreateProcess result={created} error={createError} pid={pi.dwProcessId}");
+
+                if (!created)
                 {
-                    // CreateProcess failed - show error
-                    int error = Marshal.GetLastWin32Error();
-                    MessageBox.Show($"CreateProcess failed!\n\nError code: {error}\n\nMake sure:\n1. Launcher is in MapleStory folder\n2. MapleStory.exe exists\n3. Run as Administrator", "Launch Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                    return false;
+                    return new LaunchAttemptResult
+                    {
+                        FailureKind = LaunchFailureKind.CreateProcess,
+                        Message = $"CreateProcess failed with Windows error {createError}."
+                    };
+                }
+
+                try
+                {
+                    string fullDllPath = Path.Combine(clientDirectory, sDllPath);
+                    int injectionResult = Inject(pi.dwProcessId, fullDllPath);
+                    if (injectionResult != 0)
+                    {
+                        TerminateProcess(pi.hProcess, 1);
+                        return new LaunchAttemptResult
+                        {
+                            FailureKind = LaunchFailureKind.LocalhostInjection,
+                            Message = $"Localhost.dll could not be loaded (code {injectionResult})."
+                        };
+                    }
+
+                    // Thai input is deliberately disabled for the recovery
+                    // release. The proxy, when selected, remains an optional
+                    // Canvas runtime variant; no Thai DLL is injected here.
+                    if (Configs.EnableThaiChatHook)
+                    {
+                        string fullThaiChatDllPath = Path.Combine(clientDirectory, sThaiChatDllPath);
+                        int thaiChatInject = Inject(pi.dwProcessId, fullThaiChatDllPath);
+                        if (thaiChatInject != 0)
+                            Console.WriteLine($"Thai chat hook inject skipped/failed with code {thaiChatInject}");
+                    }
+
+                    if (ResumeThread(pi.hThread) == uint.MaxValue)
+                    {
+                        int resumeError = Marshal.GetLastWin32Error();
+                        TerminateProcess(pi.hProcess, 1);
+                        return new LaunchAttemptResult
+                        {
+                            FailureKind = LaunchFailureKind.Resume,
+                            Message = $"MapleStory.exe could not be resumed (Windows error {resumeError})."
+                        };
+                    }
+
+                    await Task.Delay(1500).ConfigureAwait(false);
+
+                    uint exitCode;
+                    if (GetExitCodeProcess(pi.hProcess, out exitCode) && exitCode != 259)
+                    {
+                        return new LaunchAttemptResult
+                        {
+                            FailureKind = LaunchFailureKind.ImmediateExit,
+                            Message = $"MapleStory.exe exited immediately (code {exitCode})."
+                        };
+                    }
+
+                    return new LaunchAttemptResult { FailureKind = LaunchFailureKind.None };
+                }
+                finally
+                {
+                    CloseHandle(pi.hThread);
+                    CloseHandle(pi.hProcess);
                 }
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Could not start the game.\n\nError: {ex.Message}\n\nMake sure the file is in your game folder and that this program is ran as admin.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                return new LaunchAttemptResult
+                {
+                    FailureKind = LaunchFailureKind.Unknown,
+                    Message = ex.Message
+                };
             }
-            return false;
+        }
+
+        public bool LaunchMaple()
+        {
+            return LaunchMapleAsync().GetAwaiter().GetResult();
         }
     }
 }

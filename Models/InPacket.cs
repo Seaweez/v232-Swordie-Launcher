@@ -47,7 +47,7 @@ namespace v232.Launcher.WPF.Models
         {
             short num = this.readShort();
             Console.WriteLine("Len = " + (object)num);
-            return Encoding.ASCII.GetString(this.readBytes((int)num), 0, (int)num);
+            return Encoding.UTF8.GetString(this.readBytes((int)num), 0, (int)num);
         }
     }
 }

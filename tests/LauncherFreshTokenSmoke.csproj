@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\Models\Configs.cs" Link="Models\Configs.cs" />
+    <Compile Include="..\Models\InPacket.cs" Link="Models\InPacket.cs" />
+    <Compile Include="..\Models\OutPacket.cs" Link="Models\OutPacket.cs" />
+    <Compile Include="..\Models\IntegrityManifest.cs" Link="Models\IntegrityManifest.cs" />
+    <Compile Include="..\Services\Client.cs" Link="Services\Client.cs" />
+    <Compile Include="..\Services\OutPackets.cs" Link="Services\OutPackets.cs" />
+    <Compile Include="..\Services\Handlers.cs" Link="Services\Handlers.cs" />
+    <Compile Include="..\Services\IntegrityService.cs" Link="Services\IntegrityService.cs" />
+    <Compile Include="..\Services\CanvasModeService.cs" Link="Services\CanvasModeService.cs" />
+    <Compile Include="..\Services\LoginService.cs" Link="Services\LoginService.cs" />
+    <Compile Include="LauncherFreshTokenSmoke.cs" />
+  </ItemGroup>
+</Project>

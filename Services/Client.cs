@@ -1,4 +1,5 @@
 using System;
+using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
@@ -13,7 +14,7 @@ namespace v232.Launcher.WPF.Services
         private static ManualResetEvent receiveDone = new ManualResetEvent(false);
 
         private int PORT = Configs.APIServerPort;
-        private string HOST = Configs.GetServerIP(); // Decodes Base64 IP from Configs
+        private string HOST = Configs.GetServerIP();
         public Socket socket;
         private bool connected;
 
@@ -21,6 +22,8 @@ namespace v232.Launcher.WPF.Services
         {
             try
             {
+                this.PORT = Configs.APIServerPort;
+                this.HOST = Configs.GetServerIP();
                 Client.connectDone.Reset();
 
                 IPAddress[] addresses = Dns.GetHostAddresses(this.HOST);
@@ -34,6 +37,9 @@ namespace v232.Launcher.WPF.Services
 
                 this.socket?.Close();
                 this.socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+                this.socket.NoDelay = true;
+                this.socket.SendTimeout = 10000;
+                this.socket.ReceiveTimeout = 15000;
                 this.socket.BeginConnect((EndPoint)ipEndPoint, new AsyncCallback(this.ConnectCallback), (object)this.socket);
 
                 if (!Client.connectDone.WaitOne(TimeSpan.FromSeconds(5)))
@@ -86,6 +92,9 @@ namespace v232.Launcher.WPF.Services
 
         public void Send(OutPacket outPacket)
         {
+            if (this.socket == null || !this.socket.Connected)
+                throw new InvalidOperationException("The launcher socket is not connected.");
+
             int len = outPacket.len;
             byte[] numArray = new byte[4]
             {
@@ -102,8 +111,15 @@ namespace v232.Launcher.WPF.Services
                 buffer[index] = numArray[index];
             for (int length = numArray.Length; length < len + 4; ++length)
                 buffer[length] = outPacket.buf[length - 4];
-            this.socket.BeginSend(buffer, 0, buffer.Length, SocketFlags.None, new AsyncCallback(this.SendCallback), (object)this.socket);
-            Client.sendDone.WaitOne();
+
+            int sent = 0;
+            while (sent < buffer.Length)
+            {
+                int written = this.socket.Send(buffer, sent, buffer.Length - sent, SocketFlags.None);
+                if (written <= 0)
+                    throw new IOException("The launcher socket closed while sending a packet.");
+                sent += written;
+            }
         }
 
         private void SendCallback(IAsyncResult ar)
@@ -121,19 +137,35 @@ namespace v232.Launcher.WPF.Services
 
         public InPacket Receive()
         {
-            try
+            if (this.socket == null || !this.socket.Connected)
+                throw new InvalidOperationException("The launcher socket is not connected.");
+
+            byte[] header = ReceiveExactly(4);
+            int length = (header[0] << 24) | (header[1] << 16) | (header[2] << 8) | header[3];
+            if (length < 0 || length > 252)
+                throw new InvalidDataException("Invalid launcher packet length: " + length);
+
+            byte[] payload = ReceiveExactly(length);
+            InPacket inPacket = new InPacket();
+            Buffer.BlockCopy(header, 0, inPacket.bufData, 0, header.Length);
+            Buffer.BlockCopy(payload, 0, inPacket.bufData, header.Length, payload.Length);
+            inPacket.len = length;
+            inPacket.curLen = header.Length + payload.Length;
+            return inPacket;
+        }
+
+        private byte[] ReceiveExactly(int length)
+        {
+            byte[] bytes = new byte[length];
+            int offset = 0;
+            while (offset < length)
             {
-                InPacket inPacket = new InPacket();
-                this.socket.BeginReceive(inPacket.buf, 0, 256, SocketFlags.None, new AsyncCallback(this.ReceiveCallback), (object)inPacket);
-                while (inPacket.len == -1)
-                    Client.receiveDone.WaitOne();
-                return inPacket;
+                int read = this.socket.Receive(bytes, offset, length - offset, SocketFlags.None);
+                if (read == 0)
+                    throw new IOException("The launcher socket closed while receiving a packet.");
+                offset += read;
             }
-            catch (Exception ex)
-            {
-                Console.WriteLine(ex.ToString());
-            }
-            return (InPacket)null;
+            return bytes;
         }
 
         private void ReceiveCallback(IAsyncResult ar)

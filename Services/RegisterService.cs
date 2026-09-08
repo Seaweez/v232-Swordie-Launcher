@@ -110,7 +110,22 @@ namespace v232.Launcher.WPF.Services
         /// </summary>
         public async Task<(bool success, string message)> CreateAccount(string username, string password, string email, Client client)
         {
-            byte request = await Handlers.SendAccountCreateRequest(username, password, email, client);
+            // Do not reuse the socket opened for the status indicator.  That
+            // connection can be stale by the time a player submits the form.
+            client?.Disconnect();
+            var registrationClient = new Client();
+            if (!registrationClient.Connect())
+                return (false, "Could not connect to the account server. Please try again.");
+
+            byte request;
+            try
+            {
+                request = await Handlers.SendAccountCreateRequest(username, password, email, registrationClient);
+            }
+            finally
+            {
+                registrationClient.Disconnect();
+            }
 
             switch (request)
             {

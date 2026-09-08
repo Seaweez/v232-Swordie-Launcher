@@ -1,3 +1,4 @@
+using System;
 using System.Text;
 
 namespace v232.Launcher.WPF.Models
@@ -39,8 +40,12 @@ namespace v232.Launcher.WPF.Models
 
         public void WriteString(string str)
         {
-            this.WriteShort((short)str.Length);
-            this.Write(Encoding.ASCII.GetBytes(str));
+            byte[] bytes = Encoding.UTF8.GetBytes(str ?? string.Empty);
+            if (bytes.Length > short.MaxValue)
+                throw new ArgumentOutOfRangeException(nameof(str), "UTF-8 strings cannot exceed 32,767 bytes.");
+
+            this.WriteShort((short)bytes.Length);
+            this.Write(bytes);
         }
 
         public void Write(byte[] data)

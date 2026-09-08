@@ -1,0 +1,8 @@
+[Bb]in/
+[Oo]bj/
+*.user
+*.suo
+.vs/
+tests/bin/
+tests/obj/
+tests/out*/
