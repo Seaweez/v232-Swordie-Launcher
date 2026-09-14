@@ -45,7 +45,8 @@ namespace v232.Launcher.WPF.Services
     public static class PatchService
     {
         public const string DefaultManifestName = "clover.manifest.json";
-        public const string DefaultBaseUrl = "https://clover-portal.203.159.94.158.sslip.io/downloads/";
+        // Default patch server URL (can be overridden by client.release.json -> patchUrl)
+        public const string DefaultBaseUrl = "https://clover-story.duckdns.org/downloads/";
         private const int BufferSize = 1024 * 1024;
         private static readonly HttpClient _http = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
 
