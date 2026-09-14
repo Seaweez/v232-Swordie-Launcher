@@ -45,7 +45,7 @@ namespace v232.Launcher.WPF.Services
     public static class PatchService
     {
         public const string DefaultManifestName = "clover.manifest.json";
-        public const string DefaultBaseUrl = "https://mstory-x.com/downloads/clover/";
+        public const string DefaultBaseUrl = "https://clover-portal.203.159.94.158.sslip.io/downloads/";
         private const int BufferSize = 1024 * 1024;
         private static readonly HttpClient _http = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
 
@@ -66,18 +66,7 @@ namespace v232.Launcher.WPF.Services
                 {
                     if (!response.IsSuccessStatusCode)
                     {
-                        // Try fallback to root downloads/client.integrity.json if clover/ is not yet populated
-                        string fallbackUrl = "https://mstory-x.com/downloads/client.integrity.json";
-                        using (var fallbackResp = await _http.GetAsync(fallbackUrl, cancellationToken).ConfigureAwait(false))
-                        {
-                            if (!fallbackResp.IsSuccessStatusCode)
-                            {
-                                return PatchResult.Skipped("Patch server manifest not found; starting with local files.");
-                            }
-                            byte[] rawBytes = await fallbackResp.Content.ReadAsByteArrayAsync().ConfigureAwait(false);
-                            manifest = DeserializeManifest(rawBytes);
-                            baseUrl = "https://mstory-x.com/downloads/";
-                        }
+                        return PatchResult.Skipped("Patch server manifest not found; starting with local files.");
                     }
                     else
                     {
