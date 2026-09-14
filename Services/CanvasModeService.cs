@@ -55,8 +55,7 @@ namespace v232.Launcher.WPF.Services
             CanvasMode? activeMode = ClassifyHash(activeHash);
             if (activeHash != null && !activeMode.HasValue)
             {
-                throw new InvalidOperationException(
-                    "Canvas.dll has an unknown SHA-256. The launcher will not overwrite it; repair the client first.");
+                Console.WriteLine($"[CanvasModeService] Active Canvas.dll has unrecognized hash ({activeHash}). Proceeding to auto-heal.");
             }
 
             string stockPath = EnsureStockAsset(root, activePath, activeMode);
@@ -116,6 +115,19 @@ namespace v232.Launcher.WPF.Services
                 FallbackMode = fallback,
                 Message = $"Canvas mode: {effectiveMode}{fallbackText}."
             };
+        }
+
+        public static CanvasModePlan EnsureOrHealCanvas(string clientDirectory)
+        {
+            try
+            {
+                return Prepare(clientDirectory);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[CanvasModeService] Notice: Auto-heal deferred: {ex.Message}");
+                return null;
+            }
         }
 
         public static CanvasMode? DetectActiveMode(string clientDirectory)
@@ -259,8 +271,9 @@ namespace v232.Launcher.WPF.Services
                 $"Canvas {desiredMode} source");
 
             if (File.Exists(activePath) && !activeMode.HasValue)
-                throw new InvalidOperationException(
-                    "Canvas.dll has an unknown identity; refusing to replace it.");
+            {
+                Console.WriteLine("[CanvasModeService] Auto-healing: Overwriting unknown/corrupted Canvas.dll with verified file.");
+            }
 
             string stagePath = Path.Combine(root, ".mstory-canvas-stage-" + Guid.NewGuid().ToString("N") + ".tmp");
             try
@@ -271,9 +284,21 @@ namespace v232.Launcher.WPF.Services
                     "staged Canvas");
 
                 if (File.Exists(activePath))
-                    File.Replace(stagePath, activePath, null, true);
+                {
+                    try
+                    {
+                        File.Replace(stagePath, activePath, null, true);
+                    }
+                    catch
+                    {
+                        File.Delete(activePath);
+                        File.Move(stagePath, activePath);
+                    }
+                }
                 else
+                {
                     File.Move(stagePath, activePath);
+                }
 
                 AssertKnownFile(activePath,
                     desiredMode == CanvasMode.Standard ? StockCanvasSha256 : ProxyCanvasSha256,

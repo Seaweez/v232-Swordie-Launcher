@@ -49,9 +49,10 @@ namespace v232.Launcher.WPF
         {
             try
             {
-                this.Title = "MStory : X Launcher";
+                string brand = Configs.GetBranding();
+                this.Title = brand + " Launcher";
                 if (VersionTagText != null) VersionTagText.Text = "v232.2";
-                if (LoadingOverlayTitle != null) LoadingOverlayTitle.Text = "MStory : X";
+                if (LoadingOverlayTitle != null) LoadingOverlayTitle.Text = brand;
             }
             catch { }
         }
@@ -113,6 +114,73 @@ namespace v232.Launcher.WPF
 
             // Initialize and start BGM
             InitializeBgm();
+
+            // Run auto-heal & differential patch check in background
+            RunPatchAndAutoLaunchAsync();
+        }
+
+        private async void RunPatchAndAutoLaunchAsync()
+        {
+            try
+            {
+                // 1. Ensure local Canvas mode is auto-healed immediately
+                CanvasModeService.EnsureOrHealCanvas(AppDomain.CurrentDomain.BaseDirectory);
+
+                // 2. Differential patch check from remote CDN
+                var patchResult = await PatchService.CheckAndApplyUpdatesAsync(
+                    AppDomain.CurrentDomain.BaseDirectory,
+                    (status, progress) =>
+                    {
+                        Dispatcher.Invoke(() =>
+                        {
+                            if (StatusText != null) StatusText.Text = status;
+                        });
+                    });
+
+                Dispatcher.Invoke(() =>
+                {
+                    if (StatusText != null && _isOnline) StatusText.Text = "Online";
+                });
+
+                // 3. Handle clover:// protocol if invoked from browser
+                CheckProtocolLaunch();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[Launcher] Patch check notice: {ex.Message}");
+            }
+        }
+
+        private void CheckProtocolLaunch()
+        {
+            try
+            {
+                string[] args = Environment.GetCommandLineArgs();
+                for (int i = 1; i < args.Length; i++)
+                {
+                    string arg = args[i];
+                    if (arg.StartsWith("clover://", StringComparison.OrdinalIgnoreCase))
+                    {
+                        Console.WriteLine($"[Protocol] Received: {arg}");
+                        int qIdx = arg.IndexOf('?');
+                        if (qIdx >= 0 && qIdx < arg.Length - 1)
+                        {
+                            string query = arg.Substring(qIdx + 1);
+                            foreach (string param in query.Split('&'))
+                            {
+                                string[] parts = param.Split('=');
+                                if (parts.Length == 2 && parts[0].Equals("user", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    LoginUsername.Text = Uri.UnescapeDataString(parts[1]);
+                                    LoginPassword.Focus();
+                                }
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+            catch { }
         }
 
         private void OnClassicGifLoaded(object sender, RoutedEventArgs e)

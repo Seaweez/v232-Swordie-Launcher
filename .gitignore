@@ -6,3 +6,5 @@
 tests/bin/
 tests/obj/
 tests/out*/
+nuget.exe
+packages/
