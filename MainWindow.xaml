@@ -295,6 +295,17 @@
                                 </StackPanel>
                             </StackPanel>
 
+                            <TextBlock Text="ภาษาแชท / CHAT LANGUAGE" FontSize="11" Margin="0,0,0,8"
+                                       Foreground="{DynamicResource TextMutedBrush}"/>
+                            <ComboBox x:Name="ClientLanguagePicker" SelectedIndex="0" Padding="10,8"
+                                      SelectionChanged="ClientLanguagePicker_SelectionChanged" Margin="0,0,0,8">
+                                <ComboBoxItem Content="EN — English (Stable)"/>
+                                <ComboBoxItem Content="TH — ไทย + English (ทดสอบ)"/>
+                            </ComboBox>
+                            <TextBlock Text="มีผลเมื่อเปิดเกมครั้งถัดไป • ไม่ใช่การแปลเมนูเกม"
+                                       TextWrapping="Wrap" FontSize="11" Margin="0,0,0,16"
+                                       Foreground="{DynamicResource TextMutedBrush}"/>
+
                             <Button x:Name="PlayButton" Style="{DynamicResource GlowButton}" Padding="0,18" FontSize="16" Click="PlayButton_Click" IsDefault="True">
                                 <StackPanel Orientation="Horizontal">
                                     <Path Data="M8,5 L19,12 L8,19 Z" Fill="White" Width="18" Height="18" Stretch="Uniform" Margin="0,0,12,0"/>

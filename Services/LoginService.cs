@@ -318,6 +318,7 @@ namespace v232.Launcher.WPF.Services
 
             try
             {
+                ClientLanguageService.PrepareLaunch(clientDirectory);
                 canvasPlan = CanvasModeService.Prepare(clientDirectory);
                 Console.WriteLine(canvasPlan.Message);
 

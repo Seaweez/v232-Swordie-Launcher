@@ -96,6 +96,7 @@
     <Compile Include="Services\LoginService.cs" />
     <Compile Include="Services\RegisterService.cs" />
     <Compile Include="Services\CanvasModeService.cs" />
+    <Compile Include="Services\ClientLanguageService.cs" />
     <Compile Include="Services\IntegrityService.cs" />
     <Compile Include="Services\LauncherRemoteConfigService.cs" />
     <Compile Include="Services\PatchService.cs" />

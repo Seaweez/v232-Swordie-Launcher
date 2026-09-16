@@ -20,6 +20,7 @@ namespace v232.Launcher.WPF
         private RegisterService _registerService;
         private bool _isLoggedIn = false;
         private bool _isNeonTheme = true;
+        private bool _languagePickerReady;
         private static string ConfigFolder => Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             (Configs.GetBranding() ?? "").IndexOf("Clover", StringComparison.OrdinalIgnoreCase) >= 0 ? "CloverLauncher" : "MStoryXLauncher");
@@ -31,6 +32,8 @@ namespace v232.Launcher.WPF
         {
             InitializeComponent();
             ApplyBranding();
+            ClientLanguagePicker.SelectedIndex = ClientLanguageService.Load(AppDomain.CurrentDomain.BaseDirectory) == ClientLanguage.TH ? 1 : 0;
+            _languagePickerReady = true;
             _registerService = new RegisterService();
 
             // Load saved theme preference (just the flag, don't apply yet)
@@ -501,6 +504,32 @@ namespace v232.Launcher.WPF
         #endregion
 
         #region Play Game
+
+        private void ClientLanguagePicker_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+        {
+            if (!_languagePickerReady) return;
+            string directory = AppDomain.CurrentDomain.BaseDirectory;
+            var previous = ClientLanguageService.Load(directory);
+            var selected = ClientLanguagePicker.SelectedIndex == 1 ? ClientLanguage.TH : ClientLanguage.EN;
+            try
+            {
+                if (selected == ClientLanguage.TH && previous != selected &&
+                    MessageBox.Show("โหมด TH ยังอยู่ระหว่างแก้อาการหลุดตอนเข้าแมพ และยังไม่พร้อมแจกผู้เล่น\nต้องการเลือกเพื่อทดสอบหรือไม่?\n\nEN เป็นโหมดที่ทดสอบเข้าแมพผ่านแล้ว",
+                        "TH — Test mode", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) != MessageBoxResult.Yes)
+                    return;
+                ClientLanguageService.Save(directory, selected);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.Message, "Language setting", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                _languagePickerReady = false;
+                ClientLanguagePicker.SelectedIndex = ClientLanguageService.Load(directory) == ClientLanguage.TH ? 1 : 0;
+                _languagePickerReady = true;
+            }
+        }
 
         private async void PlayButton_Click(object sender, RoutedEventArgs e)
         {
