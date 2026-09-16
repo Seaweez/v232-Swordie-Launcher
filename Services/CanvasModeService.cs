@@ -35,7 +35,7 @@ namespace v232.Launcher.WPF.Services
 
         // v232.2 stock Canvas.dll and the approved current x64 proxy.
         public const string StockCanvasSha256 = "b5824eb4ea8604ae72316a9ff3072561ec5561b00cdd99ffc9d3e9aed8f99279";
-        public const string ProxyCanvasSha256 = "ee55bdc2aa362995d2b937ed0cf7f6d90275140d0ad9d964e469d41ac0a0e606";
+        public const string ProxyCanvasSha256 = "bbde49fe1fb8ff8402ed53282286ea7735fce48b980f6e43141b09d943afb250";
 
         private const string ModeConfigFileName = "client.launcher.json";
         private const string ModeEnvironmentVariable = "MSTORY_CANVAS_MODE";
