@@ -4,6 +4,7 @@ using System.IO;
 using System.Net.Http;
 using System.Runtime.Serialization.Json;
 using System.Security.Cryptography;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using v232.Launcher.WPF.Models;
@@ -86,6 +87,13 @@ namespace v232.Launcher.WPF.Services
             if (manifest?.Files == null || manifest.Files.Count == 0)
             {
                 return PatchResult.Skipped("No update entries in manifest.");
+            }
+
+            if (IsManifestDowngrade(clientDirectory, manifest))
+            {
+                string remoteVersion = FirstNonEmpty(manifest.Version, manifest.Release, manifest.ReleaseId);
+                Console.WriteLine($"[PatchService] Ignoring older patch manifest {remoteVersion}.");
+                return PatchResult.Done(0, $"Ignored older patch manifest {remoteVersion}; kept the installed client.");
             }
 
             // Find files that need download
@@ -253,6 +261,64 @@ namespace v232.Launcher.WPF.Services
             catch { }
 
             return DefaultBaseUrl;
+        }
+
+        public static bool IsManifestDowngrade(string clientDirectory, IntegrityManifest manifest)
+        {
+            if (manifest == null)
+                return false;
+
+            string localVersionText = null;
+            try
+            {
+                string releaseJson = Path.Combine(clientDirectory, "client.release.json");
+                if (File.Exists(releaseJson))
+                {
+                    string content = File.ReadAllText(releaseJson);
+                    var match = Regex.Match(
+                        content,
+                        "\"version\"\\s*:\\s*\"([^\"]+)\"",
+                        RegexOptions.IgnoreCase);
+                    if (match.Success)
+                        localVersionText = match.Groups[1].Value;
+                }
+            }
+            catch
+            {
+                return false;
+            }
+
+            Version localVersion;
+            if (!TryParseLooseVersion(localVersionText, out localVersion))
+                return false;
+
+            string remoteVersionText = FirstNonEmpty(manifest.Version, manifest.Release, manifest.ReleaseId);
+            Version remoteVersion;
+            if (!TryParseLooseVersion(remoteVersionText, out remoteVersion))
+                return true;
+
+            return remoteVersion < localVersion;
+        }
+
+        private static bool TryParseLooseVersion(string value, out Version version)
+        {
+            version = null;
+            if (string.IsNullOrWhiteSpace(value))
+                return false;
+
+            var match = Regex.Match(value, @"\d+(?:\.\d+){1,3}");
+            return match.Success && Version.TryParse(match.Value, out version);
+        }
+
+        private static string FirstNonEmpty(params string[] values)
+        {
+            foreach (string value in values)
+            {
+                if (!string.IsNullOrWhiteSpace(value))
+                    return value.Trim();
+            }
+
+            return "unknown";
         }
 
         private static IntegrityManifest DeserializeManifest(byte[] manifestBytes)

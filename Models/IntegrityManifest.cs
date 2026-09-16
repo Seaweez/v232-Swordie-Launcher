@@ -15,10 +15,13 @@ namespace v232.Launcher.WPF.Models
         [DataMember(Name = "release", Order = 3)]
         public string Release { get; set; }
 
-        [DataMember(Name = "algorithm", Order = 4)]
+        [DataMember(Name = "version", Order = 4)]
+        public string Version { get; set; }
+
+        [DataMember(Name = "algorithm", Order = 5)]
         public string Algorithm { get; set; }
 
-        [DataMember(Name = "files", Order = 5)]
+        [DataMember(Name = "files", Order = 6)]
         public List<IntegrityFile> Files { get; set; }
     }
 
