@@ -12,7 +12,10 @@ internal static class LauncherSocketSmoke
     {
         var listener = new TcpListener(IPAddress.Loopback, 0);
         listener.Start();
-        Configs.APIServerPort = ((IPEndPoint)listener.LocalEndpoint).Port;
+        int port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        string metadataPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "client.release.json");
+        File.WriteAllText(metadataPath,
+            "{\"format\":1,\"profile\":\"Online\",\"server\":{\"host\":\"127.0.0.1\",\"port\":" + port + "}}");
         Exception serverError = null;
 
         var serverThread = new Thread(() =>
@@ -64,6 +67,8 @@ internal static class LauncherSocketSmoke
         finally
         {
             listener.Stop();
+            if (File.Exists(metadataPath))
+                File.Delete(metadataPath);
         }
     }
 
