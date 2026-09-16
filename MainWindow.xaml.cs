@@ -527,6 +527,11 @@ namespace v232.Launcher.WPF
                 {
                     this.WindowState = WindowState.Minimized;
                 }
+                else
+                {
+                    this.WindowState = WindowState.Normal;
+                    this.Activate();
+                }
             }
             catch (Exception ex)
             {

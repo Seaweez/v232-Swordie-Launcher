@@ -362,7 +362,31 @@ namespace v232.Launcher.WPF.Services
         {
             try
             {
-                // Enforce Windowed Mode in Registry to prevent silent crash on modern multi-refresh/high-DPI monitors.
+                string maplePath = Path.Combine(clientDirectory, "MapleStory.exe");
+                if (!File.Exists(maplePath))
+                {
+                    return new LaunchAttemptResult
+                    {
+                        FailureKind = LaunchFailureKind.CreateProcess,
+                        Message = "MapleStory.exe not found.\n\nPlease ensure Clover Launcher.exe is placed directly inside your full game client folder."
+                    };
+                }
+
+                // 1. Clear stuck / zombie processes from previous crashes to prevent mutex collisions
+                try
+                {
+                    foreach (var p in Process.GetProcessesByName("MapleStory"))
+                    {
+                        try { p.Kill(); p.WaitForExit(1000); } catch { }
+                    }
+                    foreach (var p in Process.GetProcessesByName("BlackCipher"))
+                    {
+                        try { p.Kill(); } catch { }
+                    }
+                }
+                catch { }
+
+                // 2. Enforce Windowed Mode and Direct3D9 DWM compatibility in Registry
                 try
                 {
                     using (var key = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(@"Software\Wizet\MapleStory"))
@@ -371,6 +395,14 @@ namespace v232.Launcher.WPF.Services
                         {
                             key.SetValue("soScreenMode", 3, Microsoft.Win32.RegistryValueKind.DWord);
                             key.SetValue("WindowMode", 1, Microsoft.Win32.RegistryValueKind.DWord);
+                            key.SetValue("ScreenQuality", 1, Microsoft.Win32.RegistryValueKind.DWord);
+                        }
+                    }
+                    using (var compatKey = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"))
+                    {
+                        if (compatKey != null)
+                        {
+                            compatKey.SetValue(maplePath, "~ DISABLEDXMAXIMIZEDWINDOWEDMODE HIGHDPIAWARE", Microsoft.Win32.RegistryValueKind.String);
                         }
                     }
                 }
@@ -379,7 +411,6 @@ namespace v232.Launcher.WPF.Services
                 STARTUPINFO si = new STARTUPINFO();
                 si.cb = (uint)Marshal.SizeOf(typeof(STARTUPINFO));
                 PROCESS_INFORMATION pi = new PROCESS_INFORMATION();
-                string maplePath = Path.Combine(clientDirectory, "MapleStory.exe");
                 Environment.SetEnvironmentVariable("MAPLE_SERVER_IP", Configs.GetServerIP());
                 bool created = CreateProcess(maplePath, $"\"{maplePath}\" WebStart {this.Token}", IntPtr.Zero, IntPtr.Zero, false, CREATE_SUSPENDED, IntPtr.Zero, clientDirectory, ref si, out pi);
                 int createError = Marshal.GetLastWin32Error();
@@ -404,7 +435,7 @@ namespace v232.Launcher.WPF.Services
                         return new LaunchAttemptResult
                         {
                             FailureKind = LaunchFailureKind.LocalhostInjection,
-                            Message = $"Localhost.dll could not be loaded (code {injectionResult})."
+                            Message = $"Localhost.dll could not be loaded (code {injectionResult}).\nEnsure Localhost.dll is not blocked or quarantined by Windows Defender / Antivirus."
                         };
                     }
 
@@ -430,7 +461,8 @@ namespace v232.Launcher.WPF.Services
                         };
                     }
 
-                    await Task.Delay(1500).ConfigureAwait(false);
+                    // Extended monitoring to catch early DX9/overlay crashes
+                    await Task.Delay(3500).ConfigureAwait(false);
 
                     uint exitCode;
                     if (GetExitCodeProcess(pi.hProcess, out exitCode) && exitCode != 259)
@@ -438,7 +470,7 @@ namespace v232.Launcher.WPF.Services
                         return new LaunchAttemptResult
                         {
                             FailureKind = LaunchFailureKind.ImmediateExit,
-                            Message = $"MapleStory.exe exited immediately (code {exitCode})."
+                            Message = $"MapleStory.exe exited unexpectedly (code {exitCode}).\n\nCommon fixes:\n1. Disable Discord Game Overlay (Settings -> Game Overlay -> Off)\n2. Close RivaTuner / MSI Afterburner / GeForce Experience\n3. Install DirectX 9 (June 2010) and Visual C++ 2015-2022 (x64) Runtimes"
                         };
                     }
 
