@@ -613,7 +613,14 @@ namespace v232.Launcher.WPF
             {
                 string fbUrl = LauncherRemoteConfigService.Instance.FacebookUrl;
                 if (string.IsNullOrWhiteSpace(fbUrl))
-                    fbUrl = Configs.ReadMetadataValue("facebookUrl") ?? "https://facebook.com";
+                    fbUrl = Configs.ReadMetadataValue("facebookUrl");
+                if (string.IsNullOrWhiteSpace(fbUrl))
+                {
+                    if (Configs.GetBranding().IndexOf("Clover", StringComparison.OrdinalIgnoreCase) >= 0)
+                        fbUrl = "https://www.facebook.com/CloverIdlestory";
+                    else
+                        fbUrl = "https://facebook.com";
+                }
                 Process.Start(new ProcessStartInfo
                 {
                     FileName = fbUrl,
@@ -629,7 +636,9 @@ namespace v232.Launcher.WPF
             {
                 string discordUrl = LauncherRemoteConfigService.Instance.DiscordUrl;
                 if (string.IsNullOrWhiteSpace(discordUrl))
-                    discordUrl = Configs.ReadMetadataValue("discordUrl") ?? "https://discord.gg";
+                    discordUrl = Configs.ReadMetadataValue("discordUrl");
+                if (string.IsNullOrWhiteSpace(discordUrl))
+                    discordUrl = "https://discord.gg";
                 Process.Start(new ProcessStartInfo
                 {
                     FileName = discordUrl,
@@ -647,7 +656,7 @@ namespace v232.Launcher.WPF
                 if (string.IsNullOrWhiteSpace(webUrl))
                 {
                     if (Configs.GetBranding().IndexOf("Clover", StringComparison.OrdinalIgnoreCase) >= 0)
-                        webUrl = "https://clover-portal.203.159.94.158.sslip.io";
+                        webUrl = "https://clover-story.duckdns.org/";
                     else
                         webUrl = "https://mstory-x.com";
                 }
