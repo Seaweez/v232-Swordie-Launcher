@@ -19,7 +19,7 @@ namespace v232.Launcher.WPF
         private LoginService _loginService;
         private RegisterService _registerService;
         private bool _isLoggedIn = false;
-        private bool _isNeonTheme = false;
+        private bool _isNeonTheme = true;
         private static string ConfigFolder => Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             (Configs.GetBranding() ?? "").IndexOf("Clover", StringComparison.OrdinalIgnoreCase) >= 0 ? "CloverLauncher" : "MStoryXLauncher");
@@ -55,6 +55,15 @@ namespace v232.Launcher.WPF
                 if (BrandingTitleText != null) BrandingTitleText.Text = brand;
                 if (VersionTagText != null) VersionTagText.Text = "v232.2";
                 if (LoadingOverlayTitle != null) LoadingOverlayTitle.Text = brand;
+
+                if ((brand ?? "").IndexOf("Clover", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    this.Icon = new BitmapImage(new Uri("pack://application:,,,/Assets/clover.ico"));
+                }
+                else
+                {
+                    this.Icon = new BitmapImage(new Uri("pack://application:,,,/Assets/Slime.ico"));
+                }
             }
             catch { }
         }
@@ -217,16 +226,16 @@ namespace v232.Launcher.WPF
                 if (File.Exists(ThemeConfigPath))
                 {
                     string savedTheme = File.ReadAllText(ThemeConfigPath).Trim().ToLowerInvariant();
-                    _isNeonTheme = (savedTheme == "neon");
+                    _isNeonTheme = (savedTheme != "classic");
                 }
                 else
                 {
-                    _isNeonTheme = false;
+                    _isNeonTheme = true;
                 }
             }
             catch
             {
-                _isNeonTheme = false;
+                _isNeonTheme = true;
             }
         }
 
