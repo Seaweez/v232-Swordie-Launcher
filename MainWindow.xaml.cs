@@ -20,11 +20,12 @@ namespace v232.Launcher.WPF
         private RegisterService _registerService;
         private bool _isLoggedIn = false;
         private bool _isNeonTheme = false;
-        private static readonly string ConfigFolder = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MStoryXLauncher");
-        private static readonly string ThemeConfigPath = Path.Combine(ConfigFolder, "theme.cfg");
-        private static readonly string UserConfigPath = Path.Combine(ConfigFolder, "user.cfg");
-        private static readonly string BgmConfigPath = Path.Combine(ConfigFolder, "bgm.cfg");
+        private static string ConfigFolder => Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            (Configs.GetBranding() ?? "").IndexOf("Clover", StringComparison.OrdinalIgnoreCase) >= 0 ? "CloverLauncher" : "MStoryXLauncher");
+        private static string ThemeConfigPath => Path.Combine(ConfigFolder, "theme.cfg");
+        private static string UserConfigPath => Path.Combine(ConfigFolder, "user.cfg");
+        private static string BgmConfigPath => Path.Combine(ConfigFolder, "bgm.cfg");
 
         public MainWindow()
         {
@@ -51,6 +52,7 @@ namespace v232.Launcher.WPF
             {
                 string brand = Configs.GetBranding();
                 this.Title = brand + " Launcher";
+                if (BrandingTitleText != null) BrandingTitleText.Text = brand;
                 if (VersionTagText != null) VersionTagText.Text = "v232.2";
                 if (LoadingOverlayTitle != null) LoadingOverlayTitle.Text = brand;
             }
@@ -69,31 +71,46 @@ namespace v232.Launcher.WPF
             GifBackgroundNeon.Visibility = Visibility.Collapsed;
             GifOverlayNeon.Visibility = Visibility.Collapsed;
 
-            // Load Classic GIF
-            var classicImage = new BitmapImage(new Uri("pack://application:,,,/Assets/bg2.gif"));
-            ImageBehavior.SetAnimatedSource(GifBackgroundClassic, classicImage);
-            ImageBehavior.SetRepeatBehavior(GifBackgroundClassic, System.Windows.Media.Animation.RepeatBehavior.Forever);
-            ImageBehavior.AddAnimationLoadedHandler(GifBackgroundClassic, OnClassicGifLoaded);
-
-            // Load Neon GIF
-            var neonImage = new BitmapImage(new Uri("pack://application:,,,/Assets/bg.gif"));
-            ImageBehavior.SetAnimatedSource(GifBackgroundNeon, neonImage);
-            ImageBehavior.SetRepeatBehavior(GifBackgroundNeon, System.Windows.Media.Animation.RepeatBehavior.Forever);
-            ImageBehavior.AddAnimationLoadedHandler(GifBackgroundNeon, OnNeonGifLoaded);
-
-            // Wait for BOTH GIFs to be ready (max 8 seconds)
-            int waited = 0;
-            while (waited < 8000)
+            if (Configs.GetBranding().IndexOf("Clover", StringComparison.OrdinalIgnoreCase) >= 0)
             {
-                if (_classicGifReady && _neonGifReady) break;
-                await Task.Delay(100);
-                waited += 100;
+                try
+                {
+                    var cloverBg = new BitmapImage(new Uri("pack://application:,,,/Assets/clover_bg.png"));
+                    GifBackgroundClassic.Source = cloverBg;
+                    GifBackgroundNeon.Source = cloverBg;
+                }
+                catch { }
+                _classicGifReady = true;
+                _neonGifReady = true;
+            }
+            else
+            {
+                // Load Classic GIF
+                var classicImage = new BitmapImage(new Uri("pack://application:,,,/Assets/bg2.gif"));
+                ImageBehavior.SetAnimatedSource(GifBackgroundClassic, classicImage);
+                ImageBehavior.SetRepeatBehavior(GifBackgroundClassic, System.Windows.Media.Animation.RepeatBehavior.Forever);
+                ImageBehavior.AddAnimationLoadedHandler(GifBackgroundClassic, OnClassicGifLoaded);
+
+                // Load Neon GIF
+                var neonImage = new BitmapImage(new Uri("pack://application:,,,/Assets/bg.gif"));
+                ImageBehavior.SetAnimatedSource(GifBackgroundNeon, neonImage);
+                ImageBehavior.SetRepeatBehavior(GifBackgroundNeon, System.Windows.Media.Animation.RepeatBehavior.Forever);
+                ImageBehavior.AddAnimationLoadedHandler(GifBackgroundNeon, OnNeonGifLoaded);
+
+                // Wait for BOTH GIFs to be ready (max 8 seconds)
+                int waited = 0;
+                while (waited < 8000)
+                {
+                    if (_classicGifReady && _neonGifReady) break;
+                    await Task.Delay(100);
+                    waited += 100;
+                }
             }
 
             // Extra buffer for rendering
             await Task.Delay(300);
 
-            // NOW apply the theme (GIFs are loaded and ready)
+            // NOW apply the theme
             if (_isNeonTheme)
                 ApplyNeonTheme();
             else
@@ -199,15 +216,18 @@ namespace v232.Launcher.WPF
             {
                 if (File.Exists(ThemeConfigPath))
                 {
-                    string savedTheme = File.ReadAllText(ThemeConfigPath).Trim();
-                    if (savedTheme == "neon")
-                    {
-                        _isNeonTheme = true;
-                        // Don't apply theme here - wait for GIFs to load first
-                    }
+                    string savedTheme = File.ReadAllText(ThemeConfigPath).Trim().ToLowerInvariant();
+                    _isNeonTheme = (savedTheme == "neon");
+                }
+                else
+                {
+                    _isNeonTheme = false;
                 }
             }
-            catch { }
+            catch
+            {
+                _isNeonTheme = false;
+            }
         }
 
         private void SaveThemePreference()
@@ -587,13 +607,53 @@ namespace v232.Launcher.WPF
             }
         }
 
+        private void FacebookButton_Click(object sender, MouseButtonEventArgs e)
+        {
+            try
+            {
+                string fbUrl = LauncherRemoteConfigService.Instance.FacebookUrl;
+                if (string.IsNullOrWhiteSpace(fbUrl))
+                    fbUrl = Configs.ReadMetadataValue("facebookUrl") ?? "https://facebook.com";
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = fbUrl,
+                    UseShellExecute = true
+                });
+            }
+            catch { }
+        }
+
+        private void DiscordButton_Click(object sender, MouseButtonEventArgs e)
+        {
+            try
+            {
+                string discordUrl = LauncherRemoteConfigService.Instance.DiscordUrl;
+                if (string.IsNullOrWhiteSpace(discordUrl))
+                    discordUrl = Configs.ReadMetadataValue("discordUrl") ?? "https://discord.gg";
+                Process.Start(new ProcessStartInfo
+                {
+                    FileName = discordUrl,
+                    UseShellExecute = true
+                });
+            }
+            catch { }
+        }
+
         private void WebsiteButton_Click(object sender, MouseButtonEventArgs e)
         {
             try
             {
+                string webUrl = Configs.ReadMetadataValue("websiteUrl");
+                if (string.IsNullOrWhiteSpace(webUrl))
+                {
+                    if (Configs.GetBranding().IndexOf("Clover", StringComparison.OrdinalIgnoreCase) >= 0)
+                        webUrl = "https://clover-portal.203.159.94.158.sslip.io";
+                    else
+                        webUrl = "https://mstory-x.com";
+                }
                 Process.Start(new ProcessStartInfo
                 {
-                    FileName = "https://mstory-x.com",
+                    FileName = webUrl,
                     UseShellExecute = true
                 });
             }
@@ -641,7 +701,8 @@ namespace v232.Launcher.WPF
             resources.Clear();
             resources.Add(new ResourceDictionary { Source = new Uri("Themes/NeonTheme.xaml", UriKind.Relative) });
 
-            ThemeToggleText.Text = "Classic";
+            ThemeToggleText.Text = "Neon";
+            ThemeToggleButton.ToolTip = "ธีมปัจจุบัน: Neon (คลิกเพื่อสลับเป็น Classic)";
 
             // Show Neon GIF, hide Classic GIF
             GifBackgroundNeon.Visibility = Visibility.Visible;
@@ -659,7 +720,8 @@ namespace v232.Launcher.WPF
             resources.Clear();
             resources.Add(new ResourceDictionary { Source = new Uri("Themes/DarkTheme.xaml", UriKind.Relative) });
 
-            ThemeToggleText.Text = "Neon";
+            ThemeToggleText.Text = "Classic";
+            ThemeToggleButton.ToolTip = "ธีมปัจจุบัน: Classic (คลิกเพื่อสลับเป็น Neon)";
 
             // Show Classic GIF, hide Neon GIF
             GifBackgroundClassic.Visibility = Visibility.Visible;

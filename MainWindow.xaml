@@ -69,7 +69,7 @@
                     <!-- Top - Title & Status -->
                     <StackPanel Grid.Row="0">
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                            <TextBlock Text="MStory : X" FontSize="36" FontWeight="Bold" Foreground="{DynamicResource PrimaryAccentBrush}" Margin="0,0,0,10">
+                            <TextBlock x:Name="BrandingTitleText" Text="Clover Idle Story" FontSize="36" FontWeight="Bold" Foreground="{DynamicResource PrimaryAccentBrush}" Margin="0,0,0,10">
                                 <TextBlock.Effect>
                                     <DropShadowEffect BlurRadius="12" ShadowDepth="2" Color="#000000" Opacity="0.8"/>
                                 </TextBlock.Effect>
@@ -136,13 +136,14 @@
                         <Border x:Name="ThemeToggleButton" Background="{DynamicResource BackgroundElevatedBrush}"
                                 CornerRadius="6" Padding="8,6" Cursor="Hand"
                                 BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                                ToolTip="ธีมปัจจุบัน: Classic (คลิกเพื่อสลับเป็น Neon)"
                                 MouseEnter="ThemeToggle_MouseEnter" MouseLeave="ThemeToggle_MouseLeave"
                                 MouseLeftButtonUp="ThemeToggle_Click">
                             <StackPanel Orientation="Horizontal">
                                 <Path x:Name="ThemeIcon" Data="M12,3A9,9 0 0,0 3,12A9,9 0 0,0 12,21A9,9 0 0,0 21,12C21,11.5 20.96,11 20.87,10.5C20.6,12 20,13.2 19.1,14.1C18.2,15 17,15.6 15.5,15.87C15,15.96 14.5,16 14,16A5,5 0 0,1 9,11A5,5 0 0,1 14,6C14.5,6 15,6.04 15.5,6.13C14.2,5.4 12.7,5 11.1,5C10.7,4.93 10.35,4.9 10,4.9C6.13,4.9 3,8.03 3,12"
                                       Fill="{DynamicResource PrimaryAccentBrush}" Width="12" Height="12" Stretch="Uniform"
                                       VerticalAlignment="Center"/>
-                                <TextBlock x:Name="ThemeToggleText" Text="Neon" FontSize="11" Margin="6,0,0,0"
+                                <TextBlock x:Name="ThemeToggleText" Text="Classic" FontSize="11" Margin="6,0,0,0"
                                            Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center"/>
                             </StackPanel>
                         </Border>
@@ -202,18 +203,49 @@
                                 <Hyperlink Click="ShowRegister_Click" Foreground="{DynamicResource PrimaryAccentBrush}" TextDecorations="None">Register</Hyperlink>
                             </TextBlock>
 
-                            <!-- Website Button (small) -->
-                            <Border x:Name="WebsiteButton" Background="{DynamicResource BackgroundElevatedBrush}"
-                                    CornerRadius="8" Padding="12,8" Cursor="Hand" HorizontalAlignment="Center"
-                                    BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
-                                    MouseEnter="WebsiteButton_MouseEnter" MouseLeave="WebsiteButton_MouseLeave"
-                                    MouseLeftButtonUp="WebsiteButton_Click" Margin="0,20,0,0">
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBlock Text="🌐" FontFamily="Segoe UI Emoji" FontSize="16" VerticalAlignment="Center"/>
-                                    <TextBlock Text="Website" FontSize="12" Margin="8,0,0,0"
-                                               Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center"/>
-                                </StackPanel>
-                            </Border>
+                            <!-- Social & Web Buttons -->
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center" Margin="0,20,0,0">
+                                <!-- Facebook Button -->
+                                <Border x:Name="FacebookButton" Background="{DynamicResource BackgroundElevatedBrush}"
+                                        CornerRadius="8" Padding="10,8" Cursor="Hand" Margin="0,0,8,0"
+                                        BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                                        MouseEnter="WebsiteButton_MouseEnter" MouseLeave="WebsiteButton_MouseLeave"
+                                        MouseLeftButtonUp="FacebookButton_Click">
+                                    <StackPanel Orientation="Horizontal">
+                                        <Path Data="M12 2.04C6.5 2.04 2 6.53 2 12.06C2 17.06 5.66 21.21 10.44 21.96V14.96H7.9V12.06H10.44V9.85C10.44 7.34 11.93 5.96 14.22 5.96C15.31 5.96 16.45 6.15 16.45 6.15V8.62H15.19C13.95 8.62 13.56 9.39 13.56 10.18V12.06H16.34L15.89 14.96H13.56V21.96A10 10 0 0 0 22 12.06C22 6.53 17.5 2.04 12 2.04Z"
+                                              Fill="#1877F2" Width="14" Height="14" Stretch="Uniform" VerticalAlignment="Center"/>
+                                        <TextBlock Text="Facebook" FontSize="11" Margin="6,0,0,0"
+                                                   Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Border>
+
+                                <!-- Discord Button -->
+                                <Border x:Name="DiscordButton" Background="{DynamicResource BackgroundElevatedBrush}"
+                                        CornerRadius="8" Padding="10,8" Cursor="Hand" Margin="0,0,8,0"
+                                        BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                                        MouseEnter="WebsiteButton_MouseEnter" MouseLeave="WebsiteButton_MouseLeave"
+                                        MouseLeftButtonUp="DiscordButton_Click">
+                                    <StackPanel Orientation="Horizontal">
+                                        <Path Data="M19.27 5.33C17.94 4.71 16.5 4.26 15 4a.09.09 0 0 0-.07.03c-.18.33-.39.76-.53 1.09a16.09 16.09 0 0 0-4.8 0c-.14-.34-.35-.76-.54-1.09c-.01-.02-.04-.03-.07-.03c-1.5.26-2.93.71-4.27 1.33c-.01 0-.02.01-.03.02c-2.72 4.07-3.47 8.03-3.1 11.95c0 .02.01.04.03.05c1.8 1.32 3.53 2.12 5.24 2.65c.03.01.06 0 .07-.02c.4-.55.76-1.13 1.07-1.74c.02-.04 0-.08-.04-.09c-.57-.22-1.11-.48-1.64-.78c-.04-.02-.04-.08-.01-.11c.11-.08.22-.17.33-.25c.02-.02.05-.02.07-.01c3.44 1.57 7.15 1.57 10.55 0c.02-.01.05-.01.07.01c.11.09.22.17.33.26c.04.03.04.09-.01.11c-.52.31-1.07.56-1.64.78c-.04.01-.05.06-.04.09c.32.61.68 1.19 1.07 1.74c.03.01.06.02.09.01c1.72-.53 3.45-1.33 5.25-2.65c.02-.01.03-.03.03-.05c.44-4.53-.73-8.46-3.1-11.95c-.01-.01-.02-.02-.04-.02zM8.52 14.91c-1.03 0-1.89-.95-1.89-2.12s.84-2.12 1.89-2.12c1.06 0 1.9.96 1.89 2.12c0 1.17-.84 2.12-1.89 2.12zm6.97 0c-1.03 0-1.89-.95-1.89-2.12s.84-2.12 1.89-2.12c1.06 0 1.9.96 1.89 2.12c0 1.17-.83 2.12-1.89 2.12z"
+                                              Fill="#5865F2" Width="14" Height="14" Stretch="Uniform" VerticalAlignment="Center"/>
+                                        <TextBlock Text="Discord" FontSize="11" Margin="6,0,0,0"
+                                                   Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Border>
+
+                                <!-- Website Button -->
+                                <Border x:Name="WebsiteButton" Background="{DynamicResource BackgroundElevatedBrush}"
+                                        CornerRadius="8" Padding="10,8" Cursor="Hand"
+                                        BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                                        MouseEnter="WebsiteButton_MouseEnter" MouseLeave="WebsiteButton_MouseLeave"
+                                        MouseLeftButtonUp="WebsiteButton_Click">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="🌐" FontFamily="Segoe UI Emoji" FontSize="13" VerticalAlignment="Center"/>
+                                        <TextBlock Text="Website" FontSize="11" Margin="6,0,0,0"
+                                                   Foreground="{DynamicResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Border>
+                            </StackPanel>
                         </StackPanel>
 
                         <!-- Register Form -->

@@ -159,7 +159,7 @@ namespace v232.Launcher.WPF.Models
             }
         }
 
-        private static string ReadMetadataValue(string key)
+        public static string ReadMetadataValue(string key)
         {
             try
             {
