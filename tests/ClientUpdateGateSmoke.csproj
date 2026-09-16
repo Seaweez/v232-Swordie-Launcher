@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework><EnableDefaultCompileItems>false</EnableDefaultCompileItems></PropertyGroup>
+  <PropertyGroup Condition="Exists('..\Services\ClientUpdateGate.cs')"><DefineConstants>$(DefineConstants);HAS_UPDATE_GATE</DefineConstants></PropertyGroup>
+  <ItemGroup>
+    <Compile Include="ClientUpdateGateSmoke.cs" />
+    <Compile Include="..\Services\ClientUpdateGate.cs" Condition="Exists('..\Services\ClientUpdateGate.cs')" />
+    <Compile Include="..\Models\IntegrityManifest.cs" />
+    <Compile Include="..\Services\PatchService.cs" />
+    <Compile Include="..\Services\CanvasModeService.cs" />
+  </ItemGroup>
+</Project>

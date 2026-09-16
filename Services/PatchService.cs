@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
 using System.Runtime.Serialization.Json;
+using System.Runtime.Serialization;
 using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -51,6 +52,62 @@ namespace v232.Launcher.WPF.Services
         private const int BufferSize = 1024 * 1024;
         private static readonly HttpClient _http = new HttpClient { Timeout = TimeSpan.FromSeconds(8) };
 
+        [DataContract]
+        private sealed class VerifiedAsset
+        {
+            [DataMember] public long Length;
+            [DataMember] public long WriteTicks;
+            [DataMember] public string Hash;
+        }
+
+        // Performance cache for large assets only. Native/runtime files are always
+        // hashed; this cache is not an authentication or code-signing boundary.
+        private const string CacheName = "client.asset-hashes.json";
+        private static Dictionary<string, VerifiedAsset> ReadAssetCache(string directory)
+        {
+            try
+            {
+                string path = Path.Combine(directory, CacheName);
+                if (new FileInfo(path).Length > 4 * 1024 * 1024) return new Dictionary<string, VerifiedAsset>();
+                using (var input = File.OpenRead(path))
+                    return (Dictionary<string, VerifiedAsset>)new DataContractJsonSerializer(typeof(Dictionary<string, VerifiedAsset>)).ReadObject(input);
+            }
+            catch { return new Dictionary<string, VerifiedAsset>(); }
+        }
+
+        private static void WriteAssetCache(string directory, Dictionary<string, VerifiedAsset> cache)
+        {
+            try
+            {
+                using (var output = File.Create(Path.Combine(directory, CacheName)))
+                    new DataContractJsonSerializer(typeof(Dictionary<string, VerifiedAsset>)).WriteObject(output, cache);
+            }
+            catch { /* A read-only client must remain usable; cache is optional. */ }
+        }
+
+        private static bool IsSafeEntry(string directory, IntegrityFile file)
+        {
+            if (file == null || file.Length < 0 || string.IsNullOrWhiteSpace(file.Sha256) ||
+                !Regex.IsMatch(file.Sha256, "\\A[0-9a-fA-F]{64}\\z")) return false;
+            string relative = !string.IsNullOrWhiteSpace(file.RelativePath) ? file.RelativePath : file.Path;
+            if (string.IsNullOrWhiteSpace(relative) || Path.IsPathRooted(relative) ||
+                relative.Contains(":") || relative.Contains("..") || relative.Equals(CacheName, StringComparison.OrdinalIgnoreCase)) return false;
+            foreach (string part in relative.Replace('\\', '/').Split('/'))
+                if (string.IsNullOrWhiteSpace(part) || part == "." || part.EndsWith(".") || part.EndsWith(" ") ||
+                    part.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0) return false;
+            try
+            {
+                string root = Path.GetFullPath(directory).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+                string path = Path.GetFullPath(Path.Combine(directory, relative.Replace('/', '\\')));
+                if (!path.StartsWith(root, StringComparison.OrdinalIgnoreCase)) return false;
+                for (string candidate = path; candidate.Length >= root.Length; candidate = Path.GetDirectoryName(candidate))
+                    if ((File.Exists(candidate) || Directory.Exists(candidate)) &&
+                        (File.GetAttributes(candidate) & FileAttributes.ReparsePoint) != 0) return false;
+                return true;
+            }
+            catch { return false; }
+        }
+
         public static async Task<PatchResult> CheckAndApplyUpdatesAsync(
             string clientDirectory,
             Action<string, double> onProgress = null,
@@ -96,6 +153,16 @@ namespace v232.Launcher.WPF.Services
                 return PatchResult.Done(0, $"Ignored older patch manifest {remoteVersion}; kept the installed client.");
             }
 
+            // Validate the entire list before mutating any player files.
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var file in manifest.Files)
+            {
+                if (!IsSafeEntry(clientDirectory, file)) return PatchResult.Failed("Invalid update path or checksum; no files were changed.");
+                string relative = (!string.IsNullOrWhiteSpace(file.RelativePath) ? file.RelativePath : file.Path).Replace('/', '\\');
+                if (!seen.Add(relative)) return PatchResult.Failed("Duplicate update entry; no files were changed.");
+            }
+            var assetCache = ReadAssetCache(clientDirectory) ?? new Dictionary<string, VerifiedAsset>();
+
             // Find files that need download
             var filesToUpdate = new List<IntegrityFile>();
             int totalEntries = manifest.Files.Count;
@@ -120,25 +187,32 @@ namespace v232.Launcher.WPF.Services
                 }
 
                 var fileInfo = new FileInfo(fullPath);
-                if (file.Length > 0 && fileInfo.Length != file.Length)
+                if (fileInfo.Length != file.Length)
                 {
                     filesToUpdate.Add(file);
                     continue;
                 }
 
-                // For files < 60MB, verify hash
-                if (fileInfo.Length < 60 * 1024 * 1024)
+                bool largeAsset = fileInfo.Length >= 60L * 1024 * 1024 &&
+                    string.Equals(Path.GetExtension(fullPath), ".wz", StringComparison.OrdinalIgnoreCase);
+                VerifiedAsset cached;
+                if (largeAsset && assetCache.TryGetValue(relPath, out cached) && cached != null &&
+                    cached.Length == fileInfo.Length && cached.WriteTicks == fileInfo.LastWriteTimeUtc.Ticks &&
+                    string.Equals(cached.Hash, file.Sha256, StringComparison.OrdinalIgnoreCase)) continue;
+                string localHash = ComputeSha256(fullPath, cancellationToken);
+                if (!string.Equals(localHash, file.Sha256, StringComparison.OrdinalIgnoreCase))
                 {
-                    string localHash = ComputeSha256(fullPath, cancellationToken);
-                    if (!string.Equals(localHash, file.Sha256, StringComparison.OrdinalIgnoreCase))
-                    {
-                        filesToUpdate.Add(file);
-                    }
+                    filesToUpdate.Add(file);
+                }
+                else if (largeAsset)
+                {
+                    assetCache[relPath] = new VerifiedAsset { Length = fileInfo.Length, WriteTicks = fileInfo.LastWriteTimeUtc.Ticks, Hash = localHash };
                 }
             }
 
             if (filesToUpdate.Count == 0)
             {
+                WriteAssetCache(clientDirectory, assetCache);
                 onProgress?.Invoke("All files are up to date.", 1.0);
                 return PatchResult.Done(0, "All files are up to date.");
             }
@@ -163,9 +237,11 @@ namespace v232.Launcher.WPF.Services
                 double progress = 0.40 + (0.55 * (i + 1) / filesToUpdate.Count);
                 onProgress?.Invoke(progressMsg, progress);
 
-                bool downloaded = await DownloadAndVerifyAsync(fileDownloadUrl, fullPath, file.Sha256, cancellationToken).ConfigureAwait(false);
+                bool downloaded = await DownloadAndVerifyAsync(fileDownloadUrl, fullPath, file.Sha256, file.Length, cancellationToken).ConfigureAwait(false);
                 if (downloaded)
                     updatedCount++;
+                else
+                    return PatchResult.Failed("Update incomplete: " + Path.GetFileName(relPath) + ". Please retry before playing.");
             }
 
             // Auto-heal Canvas mode if needed
@@ -176,10 +252,11 @@ namespace v232.Launcher.WPF.Services
             catch { }
 
             onProgress?.Invoke("Update complete.", 1.0);
+            WriteAssetCache(clientDirectory, assetCache);
             return PatchResult.Done(updatedCount);
         }
 
-        private static async Task<bool> DownloadAndVerifyAsync(string url, string destinationPath, string expectedHash, CancellationToken ct)
+        private static async Task<bool> DownloadAndVerifyAsync(string url, string destinationPath, string expectedHash, long expectedLength, CancellationToken ct)
         {
             string stagePath = destinationPath + ".patch-" + Guid.NewGuid().ToString("N") + ".tmp";
             try
@@ -198,6 +275,8 @@ namespace v232.Launcher.WPF.Services
                         await stream.CopyToAsync(fs, BufferSize, ct).ConfigureAwait(false);
                     }
                 }
+
+                if (new FileInfo(stagePath).Length != expectedLength) return false;
 
                 if (!string.IsNullOrWhiteSpace(expectedHash))
                 {

@@ -21,6 +21,7 @@ namespace v232.Launcher.WPF
         private bool _isLoggedIn = false;
         private bool _isNeonTheme = true;
         private bool _languagePickerReady;
+        private readonly ClientUpdateGate _updateGate;
         private static string ConfigFolder => Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
             (Configs.GetBranding() ?? "").IndexOf("Clover", StringComparison.OrdinalIgnoreCase) >= 0 ? "CloverLauncher" : "MStoryXLauncher");
@@ -35,6 +36,7 @@ namespace v232.Launcher.WPF
             ClientLanguagePicker.SelectedIndex = ClientLanguageService.Load(AppDomain.CurrentDomain.BaseDirectory) == ClientLanguage.TH ? 1 : 0;
             _languagePickerReady = true;
             _registerService = new RegisterService();
+            _updateGate = new ClientUpdateGate(VerifyClientUpdatesAsync);
 
             // Load saved theme preference (just the flag, don't apply yet)
             LoadThemePreference();
@@ -148,28 +150,32 @@ namespace v232.Launcher.WPF
             RunPatchAndAutoLaunchAsync();
         }
 
+        private async Task<PatchResult> VerifyClientUpdatesAsync()
+        {
+            // Never replace DLLs or assets while an existing game is using them.
+            var games = Process.GetProcessesByName("MapleStory");
+            try
+            {
+                if (games.Length != 0)
+                    return PatchResult.Failed("กรุณาปิดเกมก่อนตรวจอัปเดต แล้วกด PLAY อีกครั้ง");
+            }
+            finally { foreach (var game in games) game.Dispose(); }
+
+            return await PatchService.CheckAndApplyUpdatesAsync(
+                AppDomain.CurrentDomain.BaseDirectory,
+                (status, progress) => Dispatcher.Invoke(() =>
+                {
+                    if (StatusText != null) StatusText.Text = status;
+                }));
+        }
+
         private async void RunPatchAndAutoLaunchAsync()
         {
             try
             {
-                // 1. Ensure local Canvas mode is auto-healed immediately
-                CanvasModeService.EnsureOrHealCanvas(AppDomain.CurrentDomain.BaseDirectory);
-
-                // 2. Differential patch check from remote CDN
-                var patchResult = await PatchService.CheckAndApplyUpdatesAsync(
-                    AppDomain.CurrentDomain.BaseDirectory,
-                    (status, progress) =>
-                    {
-                        Dispatcher.Invoke(() =>
-                        {
-                            if (StatusText != null) StatusText.Text = status;
-                        });
-                    });
-
-                Dispatcher.Invoke(() =>
-                {
-                    if (StatusText != null && _isOnline) StatusText.Text = "Online";
-                });
+                var patchResult = await _updateGate.EnsureReadyAsync();
+                if (StatusText != null)
+                    StatusText.Text = patchResult.Success ? (_isOnline ? "Online" : "Ready") : "อัปเดตไม่ครบ — กด PLAY เพื่อลองใหม่";
 
                 // 3. Handle clover:// protocol if invoked from browser
                 CheckProtocolLaunch();
@@ -543,6 +549,14 @@ namespace v232.Launcher.WPF
 
             try
             {
+                var patchResult = await _updateGate.EnsureReadyAsync();
+                if (!patchResult.Success)
+                {
+                    MessageBox.Show("ยังตรวจไฟล์เกมไม่สำเร็จ กรุณากด PLAY เพื่อลองใหม่\n\n" + patchResult.Message,
+                        "Clover update", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
                 bool refreshed = await _loginService.RefreshAuthenticationForLaunchAsync();
                 if (!refreshed)
                 {
