@@ -55,7 +55,12 @@ namespace v232.Launcher.WPF.Services
             CanvasMode? activeMode = ClassifyHash(activeHash);
             if (activeHash != null && !activeMode.HasValue)
             {
-                Console.WriteLine($"[CanvasModeService] Active Canvas.dll has unrecognized hash ({activeHash}). Proceeding to auto-heal.");
+                // Do not overwrite an unknown client DLL. It may be a partially
+                // patched or locally customized installation, and replacing it
+                // here turns a diagnosable startup problem into data loss.
+                throw new InvalidOperationException(
+                    $"Canvas.dll has an unrecognized SHA-256 ({activeHash}). " +
+                    "Repair the client from a verified Clover release before launching.");
             }
 
             string stockPath = EnsureStockAsset(root, activePath, activeMode);
