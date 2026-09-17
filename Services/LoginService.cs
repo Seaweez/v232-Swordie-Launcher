@@ -4,20 +4,14 @@ using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
-using System.Text;
 using System.Threading.Tasks;
 using System.Windows;
 using v232.Launcher.WPF.Models;
-
-// Marshal is in System.Runtime.InteropServices
 
 namespace v232.Launcher.WPF.Services
 {
     public class LoginService
     {
-        private readonly static string sDllPath = "Localhost.dll";
-        private readonly static string sThaiChatDllPath = "ThaiChatInputPatch.dll";
-        private readonly static uint CREATE_SUSPENDED = 0x00000004;
         private readonly static uint EVENT_SYNCHRONIZE = 0x00100000;
         private readonly static uint WAIT_OBJECT_0 = 0x00000000;
 
@@ -42,47 +36,6 @@ namespace v232.Launcher.WPF.Services
 
         #region Win32 API
 
-        public struct PROCESS_INFORMATION
-        {
-            public IntPtr hProcess;
-            public IntPtr hThread;
-            public uint dwProcessId;
-            public uint dwThreadId;
-        }
-
-        public struct STARTUPINFO
-        {
-            public uint cb;
-            public string lpReserved;
-            public string lpDesktop;
-            public string lpTitle;
-            public uint dwX;
-            public uint dwY;
-            public uint dwXSize;
-            public uint dwYSize;
-            public uint dwXCountChars;
-            public uint dwYCountChars;
-            public uint dwFillAttribute;
-            public uint dwFlags;
-            public short wShowWindow;
-            public short cbReserved2;
-            public IntPtr lpReserved2;
-            public IntPtr hStdInput;
-            public IntPtr hStdOutput;
-            public IntPtr hStdError;
-        }
-
-        [DllImport("kernel32.dll", SetLastError = true)]
-        static extern bool CreateProcess(string lpApplicationName, string lpCommandLine, IntPtr lpProcessAttributes, IntPtr lpThreadAttributes,
-                        bool bInheritHandles, uint dwCreationFlags, IntPtr lpEnvironment,
-                        string lpCurrentDirectory, ref STARTUPINFO lpStartupInfo, out PROCESS_INFORMATION lpProcessInformation);
-
-        [DllImport("kernel32.dll", SetLastError = true)]
-        static extern uint ResumeThread(IntPtr hThread);
-
-        [DllImport("kernel32.dll", SetLastError = true)]
-        static extern IntPtr OpenProcess(uint dwDesiredAccess, int bInheritHandle, uint dwProcessId);
-
         [DllImport("kernel32.dll", SetLastError = true)]
         static extern int CloseHandle(IntPtr hObject);
 
@@ -92,76 +45,7 @@ namespace v232.Launcher.WPF.Services
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
         static extern IntPtr OpenEvent(uint dwDesiredAccess, bool bInheritHandle, string lpName);
 
-        [DllImport("kernel32.dll", SetLastError = true)]
-        static extern bool TerminateProcess(IntPtr hProcess, uint uExitCode);
-
-        [DllImport("kernel32.dll", SetLastError = true)]
-        static extern bool GetExitCodeProcess(IntPtr hProcess, out uint lpExitCode);
-
-        [DllImport("kernel32.dll", SetLastError = true)]
-        static extern IntPtr GetProcAddress(IntPtr hModule, string lpProcName);
-
-        [DllImport("kernel32.dll", SetLastError = true)]
-        static extern IntPtr GetModuleHandle(string lpModuleName);
-
-        [DllImport("kernel32.dll", SetLastError = true)]
-        static extern IntPtr VirtualAllocEx(IntPtr hProcess, IntPtr lpAddress, IntPtr dwSize, uint flAllocationType, uint flProtect);
-
-        [DllImport("kernel32.dll", SetLastError = true)]
-        static extern int WriteProcessMemory(IntPtr hProcess, IntPtr lpBaseAddress, byte[] buffer, uint size, int lpNumberOfBytesWritten);
-
-        [DllImport("kernel32.dll", SetLastError = true)]
-        static extern IntPtr CreateRemoteThread(IntPtr hProcess, IntPtr lpThreadAttribute, IntPtr dwStackSize, IntPtr lpStartAddress,
-            IntPtr lpParameter, uint dwCreationFlags, out IntPtr lpThreadId);
-
         #endregion
-
-        private static int Inject(uint processID, string dllPath)
-        {
-            // Check if DLL exists first
-            if (!File.Exists(dllPath))
-            {
-                MessageBox.Show($"DLL not found: {dllPath}", "Inject Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                return 1;
-            }
-
-            if (processID == 0)
-                return 1;
-
-            IntPtr pLoadLibraryAddress = GetProcAddress(GetModuleHandle("Kernel32.dll"), "LoadLibraryA");
-            if (pLoadLibraryAddress == (IntPtr)0)
-                return 2;
-
-            IntPtr processHandle = OpenProcess((0x2 | 0x8 | 0x10 | 0x20 | 0x400), 1, (uint)processID);
-            if (processHandle == (IntPtr)0)
-                return 3;
-
-            // Allocate length + 1 for null terminator
-            IntPtr lpAddress = VirtualAllocEx(processHandle, (IntPtr)null, (IntPtr)(dllPath.Length + 1), (0x1000 | 0x2000), 0X40);
-            if (lpAddress == (IntPtr)0)
-                return 4;
-
-            byte[] bytes = Encoding.ASCII.GetBytes(dllPath + "\0"); // Add null terminator
-            if (WriteProcessMemory(processHandle, lpAddress, bytes, (uint)bytes.Length, 0) == 0)
-                return 5;
-
-            IntPtr threadId;
-            IntPtr hThread = CreateRemoteThread(processHandle, IntPtr.Zero, IntPtr.Zero, pLoadLibraryAddress, lpAddress, 0, out threadId);
-            if (hThread == (IntPtr)0)
-            {
-                int err = Marshal.GetLastWin32Error();
-                MessageBox.Show($"CreateRemoteThread failed.\nError: {err}\nDLL: {dllPath}", "Inject Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                CloseHandle(processHandle);
-                return 6;
-            }
-
-            // Wait for DLL to load (max 10 seconds)
-            WaitForSingleObject(hThread, 10000);
-
-            CloseHandle(hThread);
-            CloseHandle(processHandle);
-            return 0;
-        }
 
         private enum ThaiPatchStartupStatus
         {
@@ -206,8 +90,7 @@ namespace v232.Launcher.WPF.Services
         {
             None,
             CreateProcess,
-            LocalhostInjection,
-            Resume,
+            ExistingProcess,
             ImmediateExit,
             Unknown
         }
@@ -327,9 +210,9 @@ namespace v232.Launcher.WPF.Services
                     return true;
 
                 // An immediate native exit is the only failure that is safe to
-                // retry with the alternate Canvas variant. Authentication,
-                // injection, and CreateProcess errors are not Canvas-mode
-                // problems and must not start a second game process.
+                // retry with the alternate Canvas variant. Authentication and
+                // process-start errors are not Canvas-mode problems and must
+                // not start a second game process.
                 if (attempt.FailureKind == LaunchFailureKind.ImmediateExit && canvasPlan.FallbackMode.HasValue)
                 {
                     CanvasModePlan fallbackPlan = CanvasModeService.Prepare(clientDirectory, canvasPlan.FallbackMode.Value);
@@ -342,7 +225,7 @@ namespace v232.Launcher.WPF.Services
                 }
 
                 MessageBox.Show(
-                    $"Could not start the game.\n\nCanvas mode: {canvasPlan.EffectiveMode}\n{attempt.Message}\n\nEnsure MapleStory.exe, Localhost.dll, and the required DirectX DLLs are in the same full client folder.",
+                    $"Could not start the game.\n\nCanvas mode: {canvasPlan.EffectiveMode}\n{attempt.Message}\n\nEnsure MapleStory.exe, the BlackCipher folder, Canvas.original.dll, MStoryX.NetworkCompat.dll, and the required DirectX DLLs are in the same full client folder.",
                     "Launch Error",
                     MessageBoxButton.OK,
                     MessageBoxImage.Error);
@@ -373,19 +256,39 @@ namespace v232.Launcher.WPF.Services
                     };
                 }
 
-                // 1. Clear stuck / zombie processes from previous crashes to prevent mutex collisions
-                try
+                string[] requiredNgsRuntime =
                 {
-                    foreach (var p in Process.GetProcessesByName("MapleStory"))
+                    @"BlackCipher\BlackCall64.aes",
+                    @"BlackCipher\BlackCipher64.aes",
+                    @"BlackCipher\BlackXchg.aes",
+                    @"BlackCipher\config.bc",
+                    @"BlackCipher\CrashReporter_64.dll"
+                };
+                string[] missingNgsRuntime = requiredNgsRuntime
+                    .Where(relativePath => !File.Exists(Path.Combine(clientDirectory, relativePath)))
+                    .ToArray();
+                if (missingNgsRuntime.Length > 0)
+                {
+                    return new LaunchAttemptResult
                     {
-                        try { p.Kill(); p.WaitForExit(1000); } catch { }
-                    }
-                    foreach (var p in Process.GetProcessesByName("BlackCipher"))
-                    {
-                        try { p.Kill(); } catch { }
-                    }
+                        FailureKind = LaunchFailureKind.CreateProcess,
+                        Message = "The BlackCipher/NGS runtime is incomplete. Missing:\n - " +
+                                  string.Join("\n - ", missingNgsRuntime) +
+                                  "\n\nRepair or reinstall the full Clover client, then press PLAY again."
+                    };
                 }
-                catch { }
+
+                // Never kill an unrelated game process. Ask the player to close
+                // an existing instance so its save/logout path remains intact.
+                if (Process.GetProcessesByName("MapleStory").Any() ||
+                    Process.GetProcessesByName("BlackCipher").Any())
+                {
+                    return new LaunchAttemptResult
+                    {
+                        FailureKind = LaunchFailureKind.ExistingProcess,
+                        Message = "MapleStory or BlackCipher is already running. Close it normally, then press PLAY again."
+                    };
+                }
 
                 // 2. Enforce Windowed Mode and Direct3D9 DWM compatibility in Registry
                 try
@@ -395,10 +298,28 @@ namespace v232.Launcher.WPF.Services
                         if (key != null)
                         {
                             key.SetValue("soScreenMode", 3, Microsoft.Win32.RegistryValueKind.DWord);
+                            key.SetValue("ScreenMode", 3, Microsoft.Win32.RegistryValueKind.DWord);
                             key.SetValue("WindowMode", 1, Microsoft.Win32.RegistryValueKind.DWord);
+                            key.SetValue("Resolution", 0, Microsoft.Win32.RegistryValueKind.DWord);
+                            key.SetValue("GraphicDevice", 0, Microsoft.Win32.RegistryValueKind.DWord);
                             key.SetValue("ScreenQuality", 1, Microsoft.Win32.RegistryValueKind.DWord);
                         }
                     }
+                    try
+                    {
+                        using (var hklmKey = Microsoft.Win32.Registry.LocalMachine.CreateSubKey(@"SOFTWARE\WOW6432Node\Wizet\MapleStory"))
+                        {
+                            if (hklmKey != null)
+                            {
+                                hklmKey.SetValue("soScreenMode", 3, Microsoft.Win32.RegistryValueKind.DWord);
+                                hklmKey.SetValue("ScreenMode", 3, Microsoft.Win32.RegistryValueKind.DWord);
+                                hklmKey.SetValue("WindowMode", 1, Microsoft.Win32.RegistryValueKind.DWord);
+                                hklmKey.SetValue("Resolution", 0, Microsoft.Win32.RegistryValueKind.DWord);
+                                hklmKey.SetValue("GraphicDevice", 0, Microsoft.Win32.RegistryValueKind.DWord);
+                            }
+                        }
+                    }
+                    catch { }
                     using (var compatKey = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"))
                     {
                         if (compatKey != null)
@@ -409,78 +330,47 @@ namespace v232.Launcher.WPF.Services
                 }
                 catch { }
 
-                STARTUPINFO si = new STARTUPINFO();
-                si.cb = (uint)Marshal.SizeOf(typeof(STARTUPINFO));
-                PROCESS_INFORMATION pi = new PROCESS_INFORMATION();
-                Environment.SetEnvironmentVariable("MAPLE_SERVER_IP", Configs.GetServerIP());
-                bool created = CreateProcess(maplePath, $"\"{maplePath}\" WebStart {this.Token}", IntPtr.Zero, IntPtr.Zero, false, CREATE_SUSPENDED, IntPtr.Zero, clientDirectory, ref si, out pi);
-                int createError = Marshal.GetLastWin32Error();
-                Console.WriteLine($"CreateProcess result={created} error={createError} pid={pi.dwProcessId}");
-
-                if (!created)
+                var startInfo = new ProcessStartInfo
                 {
-                    return new LaunchAttemptResult
-                    {
-                        FailureKind = LaunchFailureKind.CreateProcess,
-                        Message = $"CreateProcess failed with Windows error {createError}."
-                    };
-                }
+                    FileName = maplePath,
+                    Arguments = $"WebStart {this.Token}",
+                    WorkingDirectory = clientDirectory,
+                    UseShellExecute = true,
+                    Verb = "runas"
+                };
 
-                try
+                using (Process gameProcess = Process.Start(startInfo))
                 {
-                    string fullDllPath = Path.Combine(clientDirectory, sDllPath);
-                    int injectionResult = Inject(pi.dwProcessId, fullDllPath);
-                    if (injectionResult != 0)
+                    if (gameProcess == null)
                     {
-                        TerminateProcess(pi.hProcess, 1);
                         return new LaunchAttemptResult
                         {
-                            FailureKind = LaunchFailureKind.LocalhostInjection,
-                            Message = $"Localhost.dll could not be loaded (code {injectionResult}).\nEnsure Localhost.dll is not blocked or quarantined by Windows Defender / Antivirus."
+                            FailureKind = LaunchFailureKind.CreateProcess,
+                            Message = "Windows did not return a game process."
                         };
                     }
 
-                    // Thai input is deliberately disabled for the recovery
-                    // release. The proxy, when selected, remains an optional
-                    // Canvas runtime variant; no Thai DLL is injected here.
-                    if (Configs.EnableThaiChatHook)
-                    {
-                        string fullThaiChatDllPath = Path.Combine(clientDirectory, sThaiChatDllPath);
-                        int thaiChatInject = Inject(pi.dwProcessId, fullThaiChatDllPath);
-                        if (thaiChatInject != 0)
-                            Console.WriteLine($"Thai chat hook inject skipped/failed with code {thaiChatInject}");
-                    }
+                    Console.WriteLine($"Normal game start pid={gameProcess.Id}");
+                    // NGS initialization and the in-process Canvas bootstrap can
+                    // fail several seconds after Process.Start returns.
+                    await Task.Delay(8000).ConfigureAwait(false);
 
-                    if (ResumeThread(pi.hThread) == uint.MaxValue)
+                    if (gameProcess.HasExited)
                     {
-                        int resumeError = Marshal.GetLastWin32Error();
-                        TerminateProcess(pi.hProcess, 1);
-                        return new LaunchAttemptResult
-                        {
-                            FailureKind = LaunchFailureKind.Resume,
-                            Message = $"MapleStory.exe could not be resumed (Windows error {resumeError})."
-                        };
-                    }
+                        bool isDiscordRunning = false;
+                        try { isDiscordRunning = Process.GetProcessesByName("Discord").Length > 0; } catch { }
+                        string discordWarning = isDiscordRunning 
+                            ? "\n\n⚠️ ตรวจพบโปรแกรม Discord กำลังเปิดอยู่!\nหากเปิด 'In-Game Overlay' ไว้จะทำให้เกม Direct3D9 เด้งดับทันที\nวิธีแก้: ไปที่ Discord Settings -> Game Overlay -> ปิด Enable In-Game Overlay แล้วลองใหม่"
+                            : "";
 
-                    // Extended monitoring to catch early DX9/overlay crashes
-                    await Task.Delay(3500).ConfigureAwait(false);
-
-                    uint exitCode;
-                    if (GetExitCodeProcess(pi.hProcess, out exitCode) && exitCode != 259)
-                    {
                         return new LaunchAttemptResult
                         {
                             FailureKind = LaunchFailureKind.ImmediateExit,
-                            Message = $"MapleStory.exe exited unexpectedly (code {exitCode}).\n\nCommon fixes:\n1. Disable Discord Game Overlay (Settings -> Game Overlay -> Off)\n2. Close RivaTuner / MSI Afterburner / GeForce Experience\n3. Install DirectX 9 (June 2010) and Visual C++ 2015-2022 (x64) Runtimes"
+                            Message = $"MapleStory.exe exited during startup (code {gameProcess.ExitCode}).{discordWarning}\n\nThe launcher used the normal zero-injection start path. Check the newest crash report before retrying."
                         };
                     }
 
                     return new LaunchAttemptResult { FailureKind = LaunchFailureKind.None };
-                }
-                finally
-                {
-                    CloseHandle(pi.hThread);
-                    CloseHandle(pi.hProcess);
                 }
             }
             catch (Exception ex)
